@@ -14,6 +14,10 @@ export class App {
   private scene: BABYLON.Scene | null = null;
   private goldbergMesh: BABYLON.Mesh | null = null;
   private selectedFaceIndex: number | null = null;
+  private originalMaterial: BABYLON.StandardMaterial | null = null;
+  private highlightMaterial: BABYLON.StandardMaterial | null = null;
+  private multiMaterial: BABYLON.MultiMaterial | null = null;
+  private faceToSubmeshes: Map<number, number[]> = new Map(); // Maps logical face to submesh indices
 
   constructor() {
     effect(() => {
@@ -42,12 +46,44 @@ export class App {
       this.scene
     );
 
-    // Apply flat shading material to emphasize hexagonal boundaries
-    const material = new BABYLON.StandardMaterial('goldbergMaterial', this.scene);
-    material.diffuseColor = new BABYLON.Color3(0.2, 0.4, 0.8);
-    material.specularColor = new BABYLON.Color3(0, 0, 0);
-    material.backFaceCulling = false;
-    goldbergMesh.material = material;
+    // Create materials for multi-material system
+    this.originalMaterial = new BABYLON.StandardMaterial('goldbergMaterial', this.scene);
+    this.originalMaterial.diffuseColor = new BABYLON.Color3(0.2, 0.4, 0.8);
+    this.originalMaterial.specularColor = new BABYLON.Color3(0, 0, 0);
+    this.originalMaterial.backFaceCulling = false;
+    
+    this.highlightMaterial = new BABYLON.StandardMaterial('highlightMaterial', this.scene);
+    this.highlightMaterial.diffuseColor = new BABYLON.Color3(1, 1, 0);
+    this.highlightMaterial.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0);
+    this.highlightMaterial.backFaceCulling = false;
+    
+    // Create multi-material with both materials
+    this.multiMaterial = new BABYLON.MultiMaterial('goldbergMultiMaterial', this.scene);
+    this.multiMaterial.subMaterials.push(this.originalMaterial);
+    this.multiMaterial.subMaterials.push(this.highlightMaterial);
+    
+    // Apply multi-material to mesh
+    goldbergMesh.material = this.multiMaterial;
+    
+    // Create submeshes for each face (all faces use material index 0 initially)
+    const indices = goldbergMesh.getIndices();
+    const positions = goldbergMesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+    if (indices && positions) {
+      const faceCount = indices.length / 3;
+      goldbergMesh.subMeshes = [];
+      
+      // Create one submesh per triangle, all using the original material (index 0)
+      for (let i = 0; i < faceCount; i++) {
+        const startIndex = i * 3;
+        const indexCount = 3;
+        const materialIndex = 0; // Use original material
+        
+        new BABYLON.SubMesh(materialIndex, 0, faceCount, startIndex, indexCount, goldbergMesh);
+      }
+      
+      // Analyze mesh to group triangles into logical faces
+      this.analyzeFaceGroups(new Int32Array(indices), new Float32Array(positions));
+    }
 
     // Create a camera
     const camera = new BABYLON.ArcRotateCamera(
@@ -155,25 +191,149 @@ export class App {
     }
   }
 
-  private highlightFace(faceId: number): void {
-    if (!this.goldbergMesh) return;
+  private getLogicalFaceForTriangle(triangleIndex: number): number[] | null {
+    // First try to find a direct mapping
+    const directMapping = this.faceToSubmeshes.get(triangleIndex);
+    if (directMapping) {
+      return directMapping;
+    }
+    
+    // If no direct mapping, find which logical face contains this triangle
+    for (const [key, faceTriangles] of this.faceToSubmeshes.entries()) {
+      if (faceTriangles.includes(triangleIndex)) {
+        return faceTriangles;
+      }
+    }
+    
+    return null;
+  }
 
-    // Simplified highlighting - change mesh color temporarily
-    const highlightMaterial = new BABYLON.StandardMaterial('highlightMaterial', this.scene!);
-    highlightMaterial.diffuseColor = new BABYLON.Color3(1, 1, 0);
-    highlightMaterial.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0);
-    this.goldbergMesh.material = highlightMaterial;
+  private highlightFace(faceId: number): void {
+    if (!this.goldbergMesh || !this.goldbergMesh.subMeshes) return;
+
+    // Find all submeshes that belong to this logical face
+    const logicalFaceSubmeshes = this.getLogicalFaceForTriangle(faceId);
+    
+    if (logicalFaceSubmeshes) {
+      // Highlight all submeshes in this logical face
+      logicalFaceSubmeshes.forEach(submeshIndex => {
+        if (submeshIndex < this.goldbergMesh!.subMeshes.length) {
+          this.goldbergMesh!.subMeshes[submeshIndex].materialIndex = 1;
+          this.goldbergMesh!.subMeshes[submeshIndex].refreshBoundingInfo();
+        }
+      });
+    } else {
+      // Fallback: highlight just the clicked triangle if no mapping found
+      if (faceId < this.goldbergMesh.subMeshes.length) {
+        this.goldbergMesh.subMeshes[faceId].materialIndex = 1;
+        this.goldbergMesh.subMeshes[faceId].refreshBoundingInfo();
+      }
+    }
   }
 
   private resetFaceColor(faceId: number): void {
-    if (!this.goldbergMesh) return;
+    if (!this.goldbergMesh || !this.goldbergMesh.subMeshes) return;
 
-    // Reset to original material
-    const originalMaterial = new BABYLON.StandardMaterial('goldbergMaterial', this.scene!);
-    originalMaterial.diffuseColor = new BABYLON.Color3(0.2, 0.4, 0.8);
-    originalMaterial.specularColor = new BABYLON.Color3(0, 0, 0);
-    originalMaterial.backFaceCulling = false;
-    this.goldbergMesh.material = originalMaterial;
+    // Find all submeshes that belong to this logical face
+    const logicalFaceSubmeshes = this.getLogicalFaceForTriangle(faceId);
+    
+    if (logicalFaceSubmeshes) {
+      // Reset all submeshes in this logical face
+      logicalFaceSubmeshes.forEach(submeshIndex => {
+        if (submeshIndex < this.goldbergMesh!.subMeshes.length) {
+          this.goldbergMesh!.subMeshes[submeshIndex].materialIndex = 0;
+          this.goldbergMesh!.subMeshes[submeshIndex].refreshBoundingInfo();
+        }
+      });
+    } else {
+      // Fallback: reset just the clicked triangle if no mapping found
+      if (faceId < this.goldbergMesh.subMeshes.length) {
+        this.goldbergMesh.subMeshes[faceId].materialIndex = 0;
+        this.goldbergMesh.subMeshes[faceId].refreshBoundingInfo();
+      }
+    }
+  }
+
+  private analyzeFaceGroups(indices: Int32Array, positions: Float32Array): void {
+    const faceCount = indices.length / 3;
+    const visited = new Set<number>();
+    
+    // For each triangle, find all triangles that share vertices to form a logical face
+    for (let i = 0; i < faceCount; i++) {
+      if (visited.has(i)) continue;
+      
+      // Get vertices of current triangle
+      const triangleVertices = new Set([
+        indices[i * 3],
+        indices[i * 3 + 1],
+        indices[i * 3 + 2]
+      ]);
+      
+      // Find all triangles that share vertices with this triangle (recursive approach)
+      const logicalFace = this.findConnectedTriangles(i, triangleVertices, indices, visited);
+      
+      // Map the first triangle index to all triangles in this logical face
+      this.faceToSubmeshes.set(logicalFace[0], logicalFace);
+    }
+    
+    console.log(`Analyzed ${faceCount} triangles into ${this.faceToSubmeshes.size} logical faces`);
+  }
+
+  private findConnectedTriangles(
+    startTriangle: number, 
+    initialVertices: Set<number>, 
+    indices: Int32Array, 
+    visited: Set<number>
+  ): number[] {
+    const logicalFace: number[] = [];
+    const verticesToCheck = new Set(initialVertices);
+    const trianglesToCheck = [startTriangle];
+    
+    while (trianglesToCheck.length > 0) {
+      const currentTriangle = trianglesToCheck.pop()!;
+      
+      if (visited.has(currentTriangle)) continue;
+      
+      // Add this triangle to the logical face
+      logicalFace.push(currentTriangle);
+      visited.add(currentTriangle);
+      
+      // Get vertices of current triangle
+      const currentVertices = [
+        indices[currentTriangle * 3],
+        indices[currentTriangle * 3 + 1],
+        indices[currentTriangle * 3 + 2]
+      ];
+      
+      // Add current vertices to the set of vertices we're tracking
+      currentVertices.forEach(v => verticesToCheck.add(v));
+      
+      // Find all triangles that share any vertex with our growing face
+      for (let j = 0; j < indices.length / 3; j++) {
+        if (visited.has(j)) continue;
+        
+        const jVertices = [
+          indices[j * 3],
+          indices[j * 3 + 1],
+          indices[j * 3 + 2]
+        ];
+        
+        // Check if triangle j shares any vertex with our logical face
+        let sharesVertex = false;
+        for (const vertex of jVertices) {
+          if (verticesToCheck.has(vertex)) {
+            sharesVertex = true;
+            break;
+          }
+        }
+        
+        if (sharesVertex && !trianglesToCheck.includes(j)) {
+          trianglesToCheck.push(j);
+        }
+      }
+    }
+    
+    return logicalFace;
   }
 
   private calculateCentroid(positions: BABYLON.Vector3[]): BABYLON.Vector3 {
