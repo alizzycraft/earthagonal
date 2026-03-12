@@ -84,65 +84,68 @@ export class CellGeometryGenerator {
    * Handle face transition when coordinate goes outside triangular bounds
    */
   private handleFaceTransition(cell: CellID): CellID | null {
-    // Basic face transition mapping for icosahedron
-    // This is a simplified implementation - full mapping would be more complex
-    const { q, r, face, resolution: n } = cell
-    
-    // Define which edges transition to which faces
-    // These are simplified transitions for demonstration
-    if (q < 0) { // West edge
-      // Map to adjacent face based on current face number
-      const adjacentFaces = [1, 5, 6, 10, 11, 14, 15, 16, 17, 18, 19]
-      const targetFace = adjacentFaces[face % adjacentFaces.length]
-      return { face: targetFace, q: n, r: r, resolution: n }
+    const { q, r, face, resolution: n } = cell;
+
+    // Icosahedron Adjacency Map: [Face Index]: [Edge 0 (Top), Edge 1 (Right), Edge 2 (Left)]
+    const neighbors: Record<number, number[]> = {
+      0: [4, 1, 5],   1: [0, 2, 6],   2: [1, 3, 7],   3: [2, 4, 8],   4: [3, 0, 9],
+      5: [0, 10, 14], 6: [1, 11, 10], 7: [2, 12, 11], 8: [3, 13, 12], 9: [4, 14, 13],
+      10: [5, 6, 15], 11: [6, 7, 16], 12: [7, 8, 17], 13: [8, 9, 18], 14: [9, 5, 19],
+      15: [10, 19, 16], 16: [11, 15, 17], 17: [12, 16, 18], 18: [13, 17, 19], 19: [14, 18, 15]
+    };
+
+    const adj = neighbors[face];
+    if (!adj) return null;
+
+    // Case 1: Outside Top/Northwest Edge (r < 0)
+    if (r < 0) {
+      return { face: adj[0], q: q, r: n + r, resolution: n };
     }
     
-    if (r < 0) { // Northwest edge  
-      const adjacentFaces = [4, 8, 9, 13, 14, 15, 16, 17, 18, 19, 0]
-      const targetFace = adjacentFaces[face % adjacentFaces.length]
-      return { face: targetFace, q: q, r: n, resolution: n }
+    // Case 2: Outside Right/Southeast Edge (q + r >= n)
+    // Note: Goldberg Class II (n=0) usually aligns hexes with edge q+r=n
+    if (q + r >= n) {
+      return { face: adj[1], q: 0, r: r, resolution: n };
     }
-    
-    if (q + r > n) { // Southeast edge
-      const adjacentFaces = [2, 3, 7, 8, 9, 13, 14, 15, 16, 17, 18]
-      const targetFace = adjacentFaces[face % adjacentFaces.length]
-      return { face: targetFace, q: 0, r: 0, resolution: n }
+
+    // Case 3: Outside Left/West Edge (q < 0)
+    if (q < 0) {
+      return { face: adj[2], q: n + q, r: r, resolution: n };
     }
-    
-    return null // No transition needed
+
+    return null;
   }
 
   /**
    * Compute cell vertices from center and neighbor centers
    */
   private computeCellVertices(center: Point3D, neighborCenters: Point3D[]): Point3D[] {
-    const vertices: Point3D[] = []
-    
-    // For a proper hexagon, we need exactly 6 vertices (or 5 for pentagons)
-    // Create vertices by interpolating between center and edge midpoints
-    const numVertices = neighborCenters.length
-    
-    for (let i = 0; i < numVertices; i++) {
-      const neighbor1 = neighborCenters[i]
-      const neighbor2 = neighborCenters[(i + 1) % numVertices]
-      
-      // Compute vertex as weighted average: more weight on center for stability
-      // This creates more regular hexagonal shapes
-      const weight = 0.4 // Center weight
-      const neighborWeight = (1 - weight) / 2 // Split between two neighbors
-      
+    // 1. Sort neighbors clockwise/counter-clockwise around center
+    const sortedNeighbors = [...neighborCenters].sort((a, b) => {
+      const angleA = Math.atan2(a.y - center.y, a.x - center.x);
+      const angleB = Math.atan2(b.y - center.y, b.x - center.x);
+      return angleA - angleB;
+    });
+
+    const vertices: Point3D[] = [];
+    const numNeighbors = sortedNeighbors.length;
+
+    for (let i = 0; i < numNeighbors; i++) {
+      const n1 = sortedNeighbors[i];
+      const n2 = sortedNeighbors[(i + 1) % numNeighbors];
+
+      // Standard Dual-Graph vertex: Average of center and two adjacent neighbors
       const vertex = {
-        x: weight * center.x + neighborWeight * (neighbor1.x + neighbor2.x),
-        y: weight * center.y + neighborWeight * (neighbor1.y + neighbor2.y),
-        z: weight * center.z + neighborWeight * (neighbor1.z + neighbor2.z)
-      }
-      
-      // Normalize to sphere surface and scale to Earth radius
-      const normalized = this.projection.normalizeToSphere(vertex)
-      vertices.push(this.projection.scaleToEarthRadius(normalized))
+        x: (center.x + n1.x + n2.x) / 3,
+        y: (center.y + n1.y + n2.y) / 3,
+        z: (center.z + n1.z + n2.z) / 3
+      };
+
+      const normalized = this.projection.normalizeToSphere(vertex);
+      vertices.push(this.projection.scaleToEarthRadius(normalized));
     }
 
-    return vertices
+    return vertices;
   }
 
   /**
