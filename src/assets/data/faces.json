@@ -1,0 +1,25 @@
+{
+  "dataset": "earthagonal-grid",
+  "version": "1.0",
+  "coordinateSystem": "WGS84",
+  "faces": [
+    {
+      "cell": { "face": 0, "q": 0, "r": 0, "resolution": 8 },
+      "name": "North Pole Cell",
+      "type": "pole",
+      "properties": {
+        "elevation": 0,
+        "climate": "arctic"
+      }
+    },
+    {
+      "cell": { "face": 10, "q": 8, "r": 0, "resolution": 8 },
+      "name": "South Pole Cell", 
+      "type": "pole",
+      "properties": {
+        "elevation": 0,
+        "climate": "antarctic"
+      }
+    }
+  ]
+}
