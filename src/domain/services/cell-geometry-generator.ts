@@ -45,6 +45,11 @@ export class CellGeometryGenerator {
     
     console.log(`Cell ${cell.face}:${cell.q},${cell.r} has ${neighborCenters.length} neighbors`)
     
+    // Quick validation check
+    if (neighborCenters.length < 5) {
+      console.warn("Invalid cell neighbors", cell, neighborCenters.length);
+    }
+    
     const vertices = this.computeCellVertices(center, neighborCenters)
     const isPentagon = HexGridMath.isPentagon(cell)
     
@@ -86,45 +91,118 @@ export class CellGeometryGenerator {
   private handleFaceTransition(cell: CellID): CellID | null {
     const { q, r, face, resolution: n } = cell;
 
-    // Icosahedron Adjacency Map: [Face Index]: [Edge 0 (Top), Edge 1 (Right), Edge 2 (Left)]
-    const neighbors: Record<number, number[]> = {
-      0: [4, 1, 5],   1: [0, 2, 6],   2: [1, 3, 7],   3: [2, 4, 8],   4: [3, 0, 9],
-      5: [0, 10, 14], 6: [1, 11, 10], 7: [2, 12, 11], 8: [3, 13, 12], 9: [4, 14, 13],
-      10: [5, 6, 15], 11: [6, 7, 16], 12: [7, 8, 17], 13: [8, 9, 18], 14: [9, 5, 19],
-      15: [10, 19, 16], 16: [11, 15, 17], 17: [12, 16, 18], 18: [13, 17, 19], 19: [14, 18, 15]
-    };
+    // Face Transition Table: [Face Index]: [{face, rotation}, ...] for edges [0,1,2]
+    const FACE_TRANSITIONS = [
+      /*0*/ [{face:1,rotation:2},{face:4,rotation:4},{face:5,rotation:0}],
+      /*1*/ [{face:0,rotation:4},{face:2,rotation:2},{face:7,rotation:0}],
+      /*2*/ [{face:1,rotation:4},{face:3,rotation:2},{face:8,rotation:0}],
+      /*3*/ [{face:2,rotation:4},{face:4,rotation:2},{face:9,rotation:0}],
+      /*4*/ [{face:0,rotation:2},{face:3,rotation:4},{face:10,rotation:0}],
+      /*5*/ [{face:0,rotation:0},{face:6,rotation:2},{face:11,rotation:4}],
+      /*6*/ [{face:5,rotation:4},{face:7,rotation:2},{face:12,rotation:0}],
+      /*7*/ [{face:1,rotation:0},{face:6,rotation:4},{face:8,rotation:2}],
+      /*8*/ [{face:2,rotation:0},{face:7,rotation:4},{face:9,rotation:2}],
+      /*9*/ [{face:3,rotation:0},{face:8,rotation:4},{face:10,rotation:2}],
+      /*10*/ [{face:4,rotation:0},{face:9,rotation:4},{face:15,rotation:2}],
+      /*11*/ [{face:5,rotation:2},{face:12,rotation:4},{face:16,rotation:0}],
+      /*12*/ [{face:6,rotation:2},{face:11,rotation:4},{face:13,rotation:0}],
+      /*13*/ [{face:12,rotation:2},{face:14,rotation:4},{face:17,rotation:0}],
+      /*14*/ [{face:13,rotation:2},{face:15,rotation:4},{face:18,rotation:0}],
+      /*15*/ [{face:10,rotation:2},{face:14,rotation:4},{face:19,rotation:0}],
+      /*16*/ [{face:11,rotation:2},{face:17,rotation:4},{face:19,rotation:0}],
+      /*17*/ [{face:13,rotation:2},{face:16,rotation:4},{face:18,rotation:0}],
+      /*18*/ [{face:14,rotation:2},{face:17,rotation:4},{face:19,rotation:0}],
+      /*19*/ [{face:15,rotation:2},{face:16,rotation:4},{face:18,rotation:0}]
+    ];
 
-    const adj = neighbors[face];
-    if (!adj) return null;
-
-    // Case 1: Outside Top/Northwest Edge (r < 0)
+    // Case 1: Outside Top/Northwest Edge (r < 0) - Edge 0
     if (r < 0) {
-      return { face: adj[0], q: q, r: n + r, resolution: n };
+      const transition = FACE_TRANSITIONS[face][0];
+      if (!transition) return null;
+      
+      // Apply rotation and coordinate transform
+      const rotated = this.rotateCoordinates(q, r, transition.rotation);
+      return { face: transition.face, q: rotated.q, r: rotated.r, resolution: n };
     }
     
-    // Case 2: Outside Right/Southeast Edge (q + r >= n)
-    // Note: Goldberg Class II (n=0) usually aligns hexes with edge q+r=n
-    if (q + r >= n) {
-      return { face: adj[1], q: 0, r: r, resolution: n };
+    // Case 2: Outside Right/Southeast Edge (q + r > n) - Edge 1  
+    if (q + r > n) {
+      const transition = FACE_TRANSITIONS[face][1];
+      if (!transition) return null;
+      
+      // Edge-specific coordinate transform for q+r>n
+      const transformed = { q: r, r: n - q };
+      const rotated = this.rotateCoordinates(transformed.q, transformed.r, transition.rotation);
+      return { face: transition.face, q: rotated.q, r: rotated.r, resolution: n };
     }
 
-    // Case 3: Outside Left/West Edge (q < 0)
+    // Case 3: Outside Left/West Edge (q < 0) - Edge 2
     if (q < 0) {
-      return { face: adj[2], q: n + q, r: r, resolution: n };
+      const transition = FACE_TRANSITIONS[face][2];
+      if (!transition) return null;
+      
+      // Apply rotation and coordinate transform
+      const rotated = this.rotateCoordinates(q, r, transition.rotation);
+      return { face: transition.face, q: rotated.q, r: rotated.r, resolution: n };
     }
 
     return null;
   }
 
   /**
+   * Rotate hex coordinates by 60° increments
+   */
+  private rotateCoordinates(q: number, r: number, steps: number): {q: number, r: number} {
+    // Convert axial to cube coordinates
+    let x = q;
+    let z = r;
+    let y = -x - z;
+
+    // Apply rotation steps
+    for (let i = 0; i < steps; i++) {
+      const newX = -z;
+      const newY = -x;
+      const newZ = -y;
+      x = newX;
+      y = newY;
+      z = newZ;
+    }
+
+    // Convert back to axial coordinates
+    return { q: x, r: z };
+  }
+
+  /**
    * Compute cell vertices from center and neighbor centers
    */
   private computeCellVertices(center: Point3D, neighborCenters: Point3D[]): Point3D[] {
-    // 1. Sort neighbors clockwise/counter-clockwise around center
+    // 1. Sort neighbors in tangent plane of sphere
+    const normal = this.projection.normalizeToSphere(center)
+    const up = { x: 0, y: 1, z: 0 }
+    
+    // Create tangent basis
+    const tangent = this.projection.normalizeToSphere({
+      x: normal.y * up.z - normal.z * up.y,
+      y: normal.z * up.x - normal.x * up.z,
+      z: normal.x * up.y - normal.y * up.x
+    })
+    
+    const bitangent = this.projection.normalizeToSphere({
+      x: normal.y * tangent.z - normal.z * tangent.y,
+      y: normal.z * tangent.x - normal.x * tangent.z,
+      z: normal.x * tangent.y - normal.y * tangent.x
+    })
+
+    // Sort neighbors by angle in tangent plane
     const sortedNeighbors = [...neighborCenters].sort((a, b) => {
-      const angleA = Math.atan2(a.y - center.y, a.x - center.x);
-      const angleB = Math.atan2(b.y - center.y, b.x - center.x);
-      return angleA - angleB;
+      const dxA = (a.x - center.x) * tangent.x + (a.y - center.y) * tangent.y + (a.z - center.z) * tangent.z
+      const dyA = (a.x - center.x) * bitangent.x + (a.y - center.y) * bitangent.y + (a.z - center.z) * bitangent.z
+      const dxB = (b.x - center.x) * tangent.x + (b.y - center.y) * tangent.y + (b.z - center.z) * tangent.z
+      const dyB = (b.x - center.x) * bitangent.x + (b.y - center.y) * bitangent.y + (b.z - center.z) * bitangent.z
+      
+      const angleA = Math.atan2(dyA, dxA)
+      const angleB = Math.atan2(dyB, dxB)
+      return angleA - angleB
     });
 
     const vertices: Point3D[] = [];
