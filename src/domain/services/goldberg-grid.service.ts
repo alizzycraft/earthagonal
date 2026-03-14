@@ -64,8 +64,8 @@ export class GoldbergGridService {
       this.cellIndexMap.set(key, index)
     })
 
-    // Step 4: Create cell lookup service
-    this.cellLookupService = new CellLookupService(this.triangleData, this.cells)
+    // Step 3: Create cell lookup service with geometries
+    this.cellLookupService = new CellLookupService(this.triangleData, this.cells, this.geometries)
 
     if (!this.cellLookupService.validate()) {
       throw new Error('Cell lookup service validation failed')

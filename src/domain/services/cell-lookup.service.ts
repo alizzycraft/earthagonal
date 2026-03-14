@@ -1,13 +1,15 @@
 import { CellID } from '../models/cell-id'
-import { TriangleData } from './cell-geometry-generator'
+import { TriangleData, CellGeometry } from './cell-geometry-generator'
 
 export class CellLookupService {
   private triangleToCell: Uint32Array
   private cells: CellID[]
+  private geometries: CellGeometry[]
 
-  constructor(triangleData: TriangleData, cells: CellID[]) {
+  constructor(triangleData: TriangleData, cells: CellID[], geometries: CellGeometry[]) {
     this.triangleToCell = triangleData.triangleToCell
     this.cells = cells
+    this.geometries = geometries
   }
 
   /**
@@ -167,5 +169,12 @@ export class CellLookupService {
       hexagonCount,
       avgTrianglesPerCell: this.triangleToCell.length / this.cells.length
     }
+  }
+
+  /**
+   * Get all cell geometries for edge rendering
+   */
+  getAllGeometries(): CellGeometry[] {
+    return this.geometries
   }
 }

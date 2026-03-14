@@ -174,10 +174,10 @@ export class BabylonSceneService {
   }
 
   /**
-   * Create edge lines for hexagon borders
+   * Create edge lines for hexagon/pentagon borders only
    */
   private createEdgeLines(triangleData: TriangleData): void {
-    if (!this.scene) return
+    if (!this.scene || !this.cellLookupService) return
 
     // Dispose of existing edge lines
     for (const line of this.edgeLines) {
@@ -192,71 +192,57 @@ export class BabylonSceneService {
     lineMaterial.disableLighting = true
     lineMaterial.alpha = 1.0
 
-    // Collect unique edges from all triangles
-    const edges = new Map<string, { start: number[], end: number[] }>()
+    // Get cell geometries to create proper hexagon/pentagon borders
+    const geometries = this.cellLookupService.getAllGeometries()
     
-    for (let i = 0; i < triangleData.indices.length; i += 3) {
-      const v1 = triangleData.indices[i] * 3
-      const v2 = triangleData.indices[i + 1] * 3
-      const v3 = triangleData.indices[i + 2] * 3
-      
-      // Create edges for this triangle
-      this.addEdge(edges, v1, v2)
-      this.addEdge(edges, v2, v3)
-      this.addEdge(edges, v3, v1)
-    }
+    console.log(`Creating edge lines for ${geometries.length} cells (hexagons + pentagons only)`)
 
-    console.log(`Creating ${edges.size} edge lines for hexagon borders`)
+    // Create lines for each cell's outer perimeter
+    for (const geometry of geometries) {
+      const vertices = geometry.vertices
+      const vertexCount = vertices.length
 
-    // Create lines mesh using individual lines
-    for (const edge of edges.values()) {
-      const startPos = new BABYLON.Vector3(
-        triangleData.vertices[edge.start[0]],
-        triangleData.vertices[edge.start[1]], 
-        triangleData.vertices[edge.start[2]]
-      )
-      const endPos = new BABYLON.Vector3(
-        triangleData.vertices[edge.end[0]],
-        triangleData.vertices[edge.end[1]], 
-        triangleData.vertices[edge.end[2]]
-      )
-      
-      // Create lines with increased thickness for visibility
-      const line = BABYLON.MeshBuilder.CreateLines(
-        `edge_${edge.start[0]}_${edge.start[1]}`,
-        { 
-          points: [startPos, endPos],
-          updatable: false,
-          useVertexAlpha: false
-        },
-        this.scene
-      )
-      
-      // Make lines more visible
-      line.color = new BABYLON.Color3(0.8, 0.8, 0.8)
-      line.alpha = 1.0
-      line.isPickable = false // Don't interfere with picking
-      
-      // Apply material
-      line.material = lineMaterial
-      
-      this.edgeLines.push(line)
+      // Create lines around the cell perimeter (skip center vertex)
+      for (let i = 0; i < vertexCount; i++) {
+        const next = (i + 1) % vertexCount
+        
+        const startPos = new BABYLON.Vector3(
+          vertices[i].x,
+          vertices[i].y, 
+          vertices[i].z
+        )
+        const endPos = new BABYLON.Vector3(
+          vertices[next].x,
+          vertices[next].y, 
+          vertices[next].z
+        )
+        
+        // Create line for this edge
+        const line = BABYLON.MeshBuilder.CreateLines(
+          `edge_${geometry.index}_${i}`,
+          { 
+            points: [startPos, endPos],
+            updatable: false,
+            useVertexAlpha: false
+          },
+          this.scene
+        )
+        
+        // Make lines more visible
+        line.color = new BABYLON.Color3(0.8, 0.8, 0.8)
+        line.alpha = 1.0
+        line.isPickable = false // Don't interfere with picking
+        
+        // Apply material
+        line.material = lineMaterial
+        
+        this.edgeLines.push(line)
+      }
     }
     
-    console.log(`Created ${this.edgeLines.length} edge lines`)
+    console.log(`Created ${this.edgeLines.length} edge lines for hexagon/pentagon borders`)
   }
 
-  /**
-   * Add edge to the edge map (avoiding duplicates)
-   */
-  private addEdge(edges: Map<string, { start: number[], end: number[] }>, v1: number, v2: number): void {
-    const key1 = `${v1}-${v2}`
-    const key2 = `${v2}-${v1}`
-    
-    if (!edges.has(key1) && !edges.has(key2)) {
-      edges.set(key1, { start: [v1, v1 + 1, v1 + 2], end: [v2, v2 + 1, v2 + 2] })
-    }
-  }
   private createEarthSphere(): void {
     if (!this.scene) return
 
