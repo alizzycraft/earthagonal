@@ -1,0 +1,6 @@
+export * from './models/geometry-types'
+export * from './utils/vector-utils'
+export * from './icosahedron'
+export * from './geodesic-subdivision'
+export * from './dual-mesh'
+export * from './goldberg-sphere-generator'

@@ -24,26 +24,31 @@ export class GoldbergGridService {
   /**
    * Initialize the Goldberg grid with specified resolution
    */
-  async initializeGrid(resolution: number = 8): Promise<void> {
+  async initializeGrid(resolution: number = 0): Promise<void> {
     console.log(`Initializing Goldberg grid with resolution ${resolution}`)
-
-    // Step 1: Generate grid cells
-    const generator = new GoldbergGridGenerator(resolution)
-    const { cells, cellIndexMap } = generator.generateGrid()
     
-    // Validate grid
-    if (!generator.validateGrid(cells)) {
-      throw new Error('Grid validation failed')
+    // Prevent extremely high resolutions that cause memory issues
+    if (resolution > 5) {
+      console.warn(`Resolution ${resolution} is too high for current hardware. Using 5 instead.`)
+      resolution = 5
+    }
+    
+    // Log memory estimates
+    const cellCounts = [12, 42, 162, 642, 2562, 10242] // resolutions 0-5
+    const triangleCounts = [60, 240, 960, 3840, 15360, 61440] // corresponding triangles
+    const vertexCounts = [72, 282, 1122, 4582, 18342, 73482] // corresponding vertices
+    
+    if (resolution < cellCounts.length) {
+      const estimatedMemoryMB = (triangleCounts[resolution] * 3 * 4 + vertexCounts[resolution] * 3 * 4) / (1024 * 1024)
+      console.log(`Memory estimate: ~${estimatedMemoryMB.toFixed(1)}MB for ${triangleCounts[resolution]} triangles`)
+      console.log(`Expected: ${cellCounts[resolution]} cells (${resolution === 4 ? 'matches m=16,n=0' : 'Goldberg polyhedron'})`)
     }
 
-    this.cells = cells
-    this.cellIndexMap = cellIndexMap
-
-    // Step 2: Generate cell geometries
-    const geometryGenerator = new CellGeometryGenerator(cells, cellIndexMap)
+    // Step 1: Generate cell geometries using new Goldberg approach
+    const geometryGenerator = new CellGeometryGenerator(resolution)
     this.geometries = geometryGenerator.generateAllGeometries()
 
-    // Step 3: Generate triangle data for Babylon.js
+    // Step 2: Generate triangle data for Babylon.js
     this.triangleData = geometryGenerator.generateTriangleData(this.geometries)
 
     // Validate triangle data
@@ -51,8 +56,16 @@ export class GoldbergGridService {
       throw new Error('Triangle data validation failed')
     }
 
+    // Step 3: Create mock cells for compatibility
+    this.cells = this.geometries.map(g => g.cell)
+    this.cellIndexMap = new Map()
+    this.cells.forEach((cell, index) => {
+      const key = `${cell.face}:${cell.q}:${cell.r}:${cell.resolution}`
+      this.cellIndexMap.set(key, index)
+    })
+
     // Step 4: Create cell lookup service
-    this.cellLookupService = new CellLookupService(this.triangleData, cells)
+    this.cellLookupService = new CellLookupService(this.triangleData, this.cells)
 
     if (!this.cellLookupService.validate()) {
       throw new Error('Cell lookup service validation failed')
@@ -63,8 +76,10 @@ export class GoldbergGridService {
 
     this.isInitialized = true
 
+    const topology = geometryGenerator.getTopologyInfo()
     console.log(`Goldberg grid initialized successfully:`)
-    console.log(`- ${cells.length} cells`)
+    console.log(`- ${this.cells.length} cells`)
+    console.log(`- ${topology.pentagons} pentagons, ${topology.hexagons} hexagons`)
     console.log(`- ${this.triangleData.triangleToCell.length} triangles`)
     console.log(`- ${this.triangleData.vertices.length / 3} vertices`)
   }

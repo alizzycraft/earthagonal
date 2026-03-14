@@ -49,7 +49,7 @@ export class App implements OnInit {
       
       // Initialize Goldberg grid
       console.log('Step 2: Initializing Goldberg grid...')
-      await this.gridService.initializeGrid(8) // Resolution 8
+      await this.gridService.initializeGrid(4) // Resolution 4 (2,562 faces - matches m=16,n=0)
       
       // Create mesh from triangle data
       console.log('Step 3: Getting triangle data...')
