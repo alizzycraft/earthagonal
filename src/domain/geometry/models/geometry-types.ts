@@ -4,15 +4,19 @@ export interface Vec3 {
   z: number
 }
 
-export interface Triangle {
-  a: number
-  b: number
-  c: number
+// Memory-efficient structure for dual mesh cells
+export interface Cell {
+  centerIndex: number
+  vertexIndices: number[]
+  neighborIndices: number[]
+  isPentagon: boolean
 }
 
-export interface Cell {
-  center: Vec3
-  vertices: Vec3[]
-  neighbors: number[]
-  isPentagon: boolean
+// Final output of the optimized generator pipeline
+export interface GoldbergMesh {
+  vertices: Float32Array
+  normals: Float32Array
+  indices: Uint32Array
+  cells: Cell[]
+  triangleToCell: Uint32Array
 }

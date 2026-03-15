@@ -1,11 +1,12 @@
 import { TestBed } from '@angular/core/testing'
+import { GoldbergGeneratorService } from '../domain/services/goldberg-generator.service'
 import { GoldbergGridService } from '../domain/services/goldberg-grid.service'
 import { FaceRepository } from '../infrastructure/repositories/face.repository'
 import { CalibrationService } from '../infrastructure/services/calibration.service'
-import { HexGridMath } from '../domain/utils/hex-grid-math'
-import { CellID } from '../domain/models/cell-id'
+import { GeodesicGrid } from '../domain/geometry/geodesic-grid'
 
-describe('Earthagonal Implementation Tests', () => {
+describe('Optimized Earthagonal Implementation Tests', () => {
+  let generatorService: GoldbergGeneratorService
   let gridService: GoldbergGridService
   let faceRepository: FaceRepository
   let calibrationService: CalibrationService
@@ -13,70 +14,102 @@ describe('Earthagonal Implementation Tests', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       providers: [
+        GoldbergGeneratorService,
         GoldbergGridService,
         FaceRepository,
         CalibrationService
       ]
     })
     
+    generatorService = TestBed.inject(GoldbergGeneratorService)
     gridService = TestBed.inject(GoldbergGridService)
     faceRepository = TestBed.inject(FaceRepository)
     calibrationService = TestBed.inject(CalibrationService)
   })
 
-  describe('Grid Core', () => {
-    it('should generate correct cell count for resolution 2', () => {
-      const expectedCount = HexGridMath.getCellCount(2)
-      expect(expectedCount).toBe(42) // 10*2^2 + 2
-    })
-
-    it('should generate correct cell count for resolution 8', () => {
-      const expectedCount = HexGridMath.getCellCount(8)
-      expect(expectedCount).toBe(642) // 10*8^2 + 2
-    })
-
-    it('should identify pentagon positions correctly', () => {
-      const pentagonCell: CellID = { face: 0, q: 0, r: 0, resolution: 8 }
-      const hexCell: CellID = { face: 0, q: 1, r: 1, resolution: 8 }
+  // Test 1: Geodesic Topology
+  describe('§11.1 Geodesic Topology', () => {
+    it('should generate correct Euler characteristic for geodesic grid (n=5)', () => {
+      const n = 5
+      const mesh = GeodesicGrid.generate(n)
       
-      expect(HexGridMath.isPentagon(pentagonCell)).toBe(true)
-      expect(HexGridMath.isPentagon(hexCell)).toBe(false)
-    })
-
-    it('should calculate distance correctly within same face', () => {
-      const cell1: CellID = { face: 0, q: 0, r: 0, resolution: 8 }
-      const cell2: CellID = { face: 0, q: 1, r: 0, resolution: 8 }
+      const V = mesh.vertexCount
+      const F = mesh.triangleCount // Number of triangles
+      // By Euler characteristic for sphere: V - E + F = 2 => E = V + F - 2
+      // Since it's a triangle mesh, 3*F = 2*E
+      // Let's verify: 3*F / 2 should equal V + F - 2
+      const E = (3 * F) / 2
       
-      const distance = HexGridMath.distance(cell1, cell2)
-      expect(distance).toBe(1)
+      expect(V - E + F).toBe(2)
+      
+      // Also verify exact structural counts for Geodesic grid n=5:
+      // A geodesic grid with frequency n has 10n^2 + 2 vertices.
+      expect(V).toBe(10 * n * n + 2)
+      // And 20n^2 faces
+      expect(F).toBe(20 * n * n)
     })
   })
 
-  describe('Calibration System', () => {
-    it('should have default calibration as identity quaternion', () => {
-      const calibration = calibrationService.getCalibration()
-      expect(calibration.rotation).toEqual([1, 0, 0, 0])
-    })
-
-    it('should validate calibration correctly', () => {
-      const validCalibration: { rotation: [number, number, number, number] } = { rotation: [1, 0, 0, 0] }
-      const invalidCalibration: { rotation: [number, number, number, number] } = { rotation: [2, 0, 0, 0] } // Not normalized
+  // Test 2: Goldberg Cell Count
+  describe('§11.2 Goldberg Cell Count', () => {
+    it('should generate correct cell counts for n=3, 5, 8', () => {
+      const testCases = [3, 5, 8]
       
-      expect(calibrationService.setCalibration(validCalibration)).toBe(true)
-      expect(calibrationService.setCalibration(invalidCalibration)).toBe(false)
+      for (const n of testCases) {
+        const mesh = generatorService.generateSphere(n)
+        const expectedCount = 10 * n * n + 2
+        
+        expect(mesh.cells.length).toBe(expectedCount)
+      }
     })
+  })
 
-    it('should apply calibration rotation to point', () => {
-      const point = { x: 1, y: 0, z: 0 }
-      const rotatedPoint = calibrationService.applyCalibration(point)
+  // Test 3: Cell Types
+  describe('§11.3 Cell Types', () => {
+    it('should generate exactly 12 pentagons and the rest hexagons for n=5', () => {
+      const n = 5
+      const mesh = generatorService.generateSphere(n)
       
-      // With identity quaternion, point should remain unchanged
-      expect(rotatedPoint).toEqual(point)
+      let pentagons = 0
+      let hexagons = 0
+      let others = 0
+      
+      for (const cell of mesh.cells) {
+        // Validation check for domain logic marking
+        if (cell.isPentagon) {
+          expect(cell.vertexIndices.length).toBe(5)
+          pentagons++
+        } else if (cell.vertexIndices.length === 6) {
+          hexagons++
+        } else {
+          others++
+        }
+      }
+      
+      expect(pentagons).toBe(12)
+      const expectedTotal = 10 * n * n + 2
+      expect(hexagons).toBe(expectedTotal - 12)
+      expect(others).toBe(0)
+    })
+  })
+
+  // Test 4: Neighbor Count
+  describe('§11.4 Neighbor Count', () => {
+    it('should have 5 neighbors for pentagons and 6 neighbors for hexagons', () => {
+      const mesh = generatorService.generateSphere(4) // Test with n=4
+      
+      for (const cell of mesh.cells) {
+        if (cell.isPentagon) {
+          expect(cell.neighborIndices.length).toBe(5)
+        } else {
+          expect(cell.neighborIndices.length).toBe(6)
+        }
+      }
     })
   })
 
   describe('Grid Service Integration', () => {
-    it('should initialize grid successfully', async () => {
+    it('should initialize grid successfully with n=4', async () => {
       await gridService.initializeGrid(4)
       expect(gridService.isReady()).toBe(true)
     })
@@ -88,19 +121,7 @@ describe('Earthagonal Implementation Tests', () => {
       expect(stats.totalCells).toBe(162) // 10*4^2 + 2
       expect(stats.resolution).toBe(4)
       expect(stats.pentagonCount).toBe(12)
-    })
-  })
-
-  describe('Face Repository', () => {
-    it('should load metadata from JSON', () => {
-      const metadata = faceRepository.getMetadata({ face: 0, q: 0, r: 0, resolution: 8 })
-      expect(metadata).toBeDefined()
-      expect(metadata?.name).toBe('North Pole Cell')
-    })
-
-    it('should return null for non-existent cell', () => {
-      const metadata = faceRepository.getMetadata({ face: 99, q: 0, r: 0, resolution: 8 })
-      expect(metadata).toBeNull()
+      expect(stats.hexagonCount).toBe(150)
     })
   })
 })

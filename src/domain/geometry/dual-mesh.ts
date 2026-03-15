@@ -1,97 +1,122 @@
-import { Vec3, Triangle, Cell } from './models/geometry-types'
-import { VectorUtils } from './utils/vector-utils'
+import { Cell } from './models/geometry-types'
 
-export class DualMesh {
-  static buildCells(vertices: Vec3[], faces: Triangle[]): Cell[] {
-    const centers = this.triangleCenters(vertices, faces)
-    const vertexTris = this.buildVertexTriangles(faces, vertices.length)
+function edgeKey(a: number, b: number): bigint {
+  return a < b
+    ? (BigInt(a) << 32n) | BigInt(b)
+    : (BigInt(b) << 32n) | BigInt(a)
+}
+
+export class DualMeshBuilder {
+  static build(vertexBuffer: Float32Array, triangleIndices: Uint32Array, vertexCount: number, triangleCount: number): {
+    cells: Cell[], cellCenters: Float32Array, triangleCenters: Float32Array
+  } {
+    // Compute triangle centers
+    const triangleCenters = new Float32Array(triangleCount * 3)
+    for (let i = 0; i < triangleCount; i++) {
+      const idxA = triangleIndices[i * 3]
+      const idxB = triangleIndices[i * 3 + 1]
+      const idxC = triangleIndices[i * 3 + 2]
+
+      const cx = vertexBuffer[idxA * 3] + vertexBuffer[idxB * 3] + vertexBuffer[idxC * 3]
+      const cy = vertexBuffer[idxA * 3 + 1] + vertexBuffer[idxB * 3 + 1] + vertexBuffer[idxC * 3 + 1]
+      const cz = vertexBuffer[idxA * 3 + 2] + vertexBuffer[idxB * 3 + 2] + vertexBuffer[idxC * 3 + 2]
+
+      const l = Math.sqrt(cx * cx + cy * cy + cz * cz)
+      triangleCenters[i * 3] = cx / l
+      triangleCenters[i * 3 + 1] = cy / l
+      triangleCenters[i * 3 + 2] = cz / l
+    }
+
+    // Build vertex adjacency lists and edge maps
+    const vertexTriangles: number[][] = Array.from({ length: vertexCount }, () => [])
+    const edgeToTriangle = new Map<bigint, number[]>()
+
+    for (let t = 0; t < triangleCount; t++) {
+      const a = triangleIndices[t * 3]
+      const b = triangleIndices[t * 3 + 1]
+      const c = triangleIndices[t * 3 + 2]
+
+      vertexTriangles[a].push(t)
+      vertexTriangles[b].push(t)
+      vertexTriangles[c].push(t)
+
+      const e1 = edgeKey(a, b)
+      const e2 = edgeKey(b, c)
+      const e3 = edgeKey(c, a)
+
+      if (!edgeToTriangle.has(e1)) edgeToTriangle.set(e1, [])
+      edgeToTriangle.get(e1)!.push(t)
+
+      if (!edgeToTriangle.has(e2)) edgeToTriangle.set(e2, [])
+      edgeToTriangle.get(e2)!.push(t)
+
+      if (!edgeToTriangle.has(e3)) edgeToTriangle.set(e3, [])
+      edgeToTriangle.get(e3)!.push(t)
+    }
 
     const cells: Cell[] = []
+    const cellCenters = new Float32Array(vertexCount * 3)
 
-    vertexTris.forEach((tris, i) => {
-      const center = vertices[i]
-      const poly = tris.map(t => centers[t])
-      const sorted = this.sortPolygon(center, poly)
+    // Construct cells via triangle walks
+    for (let v = 0; v < vertexCount; v++) {
+      const tris = vertexTriangles[v]
+      
+      // Store Cell Center
+      cellCenters[v * 3] = vertexBuffer[v * 3]
+      cellCenters[v * 3 + 1] = vertexBuffer[v * 3 + 1]
+      cellCenters[v * 3 + 2] = vertexBuffer[v * 3 + 2]
+
+      // Start Triangle walk to order the vertices polygonally
+      if (tris.length === 0) continue
+
+      const startTri = tris[0]
+      let currentTri = startTri
+
+      const vertexIndices: number[] = []
+      const neighborIndices: number[] = []
+
+      do {
+        vertexIndices.push(currentTri)
+
+        // Find the next triangle around vertex v in CCW order
+        const a = triangleIndices[currentTri * 3]
+        const b = triangleIndices[currentTri * 3 + 1]
+        const c = triangleIndices[currentTri * 3 + 2]
+
+        // Given CCW winding, if v == a -> next edge is (a, b)
+        let nextEdgeV1 = -1, nextEdgeV2 = -1, oppV = -1
+        if (v === a) { nextEdgeV1 = a; nextEdgeV2 = b; oppV = b }
+        else if (v === b) { nextEdgeV1 = b; nextEdgeV2 = c; oppV = c }
+        else if (v === c) { nextEdgeV1 = c; nextEdgeV2 = a; oppV = a }
+
+        // Find the triangle sharing this edge that is NOT currentTri
+        const edge = edgeKey(nextEdgeV1, nextEdgeV2)
+        const sharingTris = edgeToTriangle.get(edge)
+
+        let nextTri = -1
+        if (sharingTris) {
+          nextTri = sharingTris[0] === currentTri ? sharingTris[1] : sharingTris[0]
+        }
+
+        neighborIndices.push(oppV)
+        
+        // Safety break for unexpected topological boundaries/holes
+        if (nextTri === undefined || nextTri === -1) {
+           break
+        }
+
+        currentTri = nextTri
+
+      } while (currentTri !== startTri && vertexIndices.length < 10)
 
       cells.push({
-        center,
-        vertices: sorted,
-        neighbors: [],
-        isPentagon: poly.length === 5
+        centerIndex: v,
+        vertexIndices,
+        neighborIndices,
+        isPentagon: vertexIndices.length === 5
       })
-    })
-
-    return cells
-  }
-
-  private static triangleCenters(vertices: Vec3[], faces: Triangle[]): Vec3[] {
-    return faces.map(f => 
-      VectorUtils.normalize(
-        VectorUtils.scale(
-          VectorUtils.add(
-            VectorUtils.add(vertices[f.a], vertices[f.b]), 
-            vertices[f.c]
-          ),
-          1/3
-        )
-      )
-    )
-  }
-
-  private static buildVertexTriangles(faces: Triangle[], vertexCount: number): number[][] {
-    const map: number[][] = Array.from({ length: vertexCount }, () => [])
-
-    faces.forEach((f, i) => {
-      map[f.a].push(i)
-      map[f.b].push(i)
-      map[f.c].push(i)
-    })
-
-    return map
-  }
-
-  private static sortPolygon(center: Vec3, points: Vec3[]): Vec3[] {
-    if (points.length <= 2) {
-      return points.slice() // No sorting needed for lines or points
     }
 
-    const up = Math.abs(center.y) > 0.9
-      ? { x: 1, y: 0, z: 0 }
-      : { x: 0, y: 1, z: 0 }
-
-    const tangent = VectorUtils.normalize({
-      x: center.y * up.z - center.z * up.y,
-      y: center.z * up.x - center.x * up.z,
-      z: center.x * up.y - center.y * up.x
-    })
-
-    const bitangent = VectorUtils.normalize({
-      x: center.y * tangent.z - center.z * tangent.y,
-      y: center.z * tangent.x - center.x * tangent.z,
-      z: center.x * tangent.y - center.y * tangent.x
-    })
-
-    // Add safety check for degenerate cases
-    if (!tangent || !bitangent || isNaN(tangent.x) || isNaN(bitangent.x)) {
-      console.warn('Degenerate polygon detected, returning original order')
-      return points.slice()
-    }
-
-    return points.slice().sort((a, b) => {
-      const ax = (a.x - center.x) * tangent.x + (a.y - center.y) * tangent.y + (a.z - center.z) * tangent.z
-      const ay = (a.x - center.x) * bitangent.x + (a.y - center.y) * bitangent.y + (a.z - center.z) * bitangent.z
-      const bx = (b.x - center.x) * tangent.x + (b.y - center.y) * tangent.y + (b.z - center.z) * tangent.z
-      const by = (b.x - center.x) * bitangent.x + (b.y - center.y) * bitangent.y + (b.z - center.z) * bitangent.z
-
-      const angleA = Math.atan2(ay, ax)
-      const angleB = Math.atan2(by, bx)
-      
-      // Handle NaN angles
-      if (isNaN(angleA) || isNaN(angleB)) {
-        return 0
-      }
-      
-      return angleA - angleB
-    })
+    return { cells, cellCenters, triangleCenters }
   }
 }

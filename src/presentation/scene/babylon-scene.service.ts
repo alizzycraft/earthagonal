@@ -3,8 +3,8 @@ import * as BABYLON from '@babylonjs/core'
 import { effect } from '@angular/core'
 import { SelectionService } from '../services/selection.service'
 import { CellID } from '../../domain/models/cell-id'
-import { TriangleData } from '../../domain/services/cell-geometry-generator'
-import { CellLookupService } from '../../domain/services/cell-lookup.service'
+import { GoldbergMesh } from '../../domain/geometry/models/geometry-types'
+import { CellLookupService, Point3D } from '../../domain/services/cell-lookup.service'
 import { Icosahedron } from '../../domain/models/icosahedron'
 
 @Injectable({
@@ -19,11 +19,8 @@ export class BabylonSceneService {
   private edgeLines: BABYLON.Mesh[] = []
   private cellLookupService: CellLookupService | null = null
 
-  // Materials for highlighting
-  private originalMaterial: BABYLON.StandardMaterial | null = null
-  private highlightMaterial: BABYLON.StandardMaterial | null = null
-  private hoverMaterial: BABYLON.StandardMaterial | null = null
-  private multiMaterial: BABYLON.MultiMaterial | null = null
+  // Single material
+  private gridMaterial: BABYLON.StandardMaterial | null = null
 
   constructor(
     private selectionService: SelectionService,
@@ -73,9 +70,9 @@ export class BabylonSceneService {
   }
 
   /**
-   * Create the grid mesh from triangle data
+   * Create the grid mesh from generated mesh data
    */
-  createGridMesh(triangleData: TriangleData, cellLookupService: CellLookupService): void {
+  createGridMesh(meshData: GoldbergMesh, cellLookupService: CellLookupService): void {
     if (!this.scene) {
       throw new Error('Scene not initialized')
     }
@@ -85,28 +82,40 @@ export class BabylonSceneService {
       this.gridMesh.dispose()
     }
 
-    // Create materials
-    this.createMaterials()
+    // Create material if needed
+    if (!this.gridMaterial) {
+      this.gridMaterial = new BABYLON.StandardMaterial('gridMaterial', this.scene)
+      this.gridMaterial.specularColor = new BABYLON.Color3(0, 0, 0)
+      this.gridMaterial.backFaceCulling = false
+    }
 
     // Create mesh from triangle data
     this.gridMesh = new BABYLON.Mesh('gridMesh', this.scene)
-    
+
     // Set vertex data
     const vertexData = new BABYLON.VertexData()
-    vertexData.indices = triangleData.indices
-    vertexData.positions = Array.from(triangleData.vertices)
-    
-    vertexData.applyToMesh(this.gridMesh)
+    vertexData.indices = Array.from(meshData.indices)
+    vertexData.positions = Array.from(meshData.vertices)
+    vertexData.normals = Array.from(meshData.normals)
 
-    // Apply multi-material
-    this.gridMesh.material = this.multiMaterial
+    // Setup initially uniform colors
+    const colors = new Float32Array((meshData.vertices.length / 3) * 4)
+    for (let i = 0; i < colors.length; i += 4) {
+      colors[i] = 0.2     // R
+      colors[i + 1] = 0.4 // G
+      colors[i + 2] = 0.8 // B
+      colors[i + 3] = 1.0 // A
+    }
+    vertexData.colors = colors
 
-    // Enable picking on the mesh
-    this.gridMesh.isPickable = true
-    this.gridMesh.checkCollisions = false
+    // applyToMesh(mesh, updatable) -> true for dynamic colors
+    vertexData.applyToMesh(this.gridMesh!, true)
 
-    // Create submeshes for each triangle
-    this.createSubmeshes(triangleData)
+    // Setup Mesh
+    this.gridMesh!.material = this.gridMaterial
+    this.gridMesh!.useVertexColors = true
+    this.gridMesh!.isPickable = true
+    this.gridMesh!.checkCollisions = false
 
     // Store cell lookup service
     this.cellLookupService = cellLookupService
@@ -125,9 +134,9 @@ export class BabylonSceneService {
     }
 
     // Create edge lines for hexagon borders
-    this.createEdgeLines(triangleData)
+    this.createEdgeLines(meshData.cells.length)
 
-    console.log(`Grid mesh created with ${triangleData.triangleToCell.length} triangles`)
+    console.log(`Grid mesh created with ${meshData.triangleToCell.length} triangles`)
   }
 
   /**
@@ -145,12 +154,12 @@ export class BabylonSceneService {
       this.scene
     )
     this.camera.attachControl(canvas, true)
-    this.camera.wheelPrecision = 0.15 // Balanced fast zoom (user requested)
-    
+    this.camera.wheelPrecision = 0.1 // Balanced fast zoom (user requested)
+
     // Set camera limits to prevent getting too far or too close
     this.camera.lowerRadiusLimit = Icosahedron.EARTH_RADIUS_KM * 1.05 // Closer minimum zoom
     this.camera.upperRadiusLimit = Icosahedron.EARTH_RADIUS_KM * 20  // Much further maximum zoom
-    
+
     // Increase far plane to prevent disappearing at distance
     this.camera.maxZ = 100000 // Much higher far plane for distant viewing
   }
@@ -177,9 +186,9 @@ export class BabylonSceneService {
   }
 
   /**
-   * Create edge lines for hexagon/pentagon borders only
+   * Create edge lines for hexagon/pentagon borders only using LineSystem for massive performance
    */
-  private createEdgeLines(triangleData: TriangleData): void {
+  private createEdgeLines(cellCount: number): void {
     if (!this.scene || !this.cellLookupService) return
 
     // Dispose of existing edge lines
@@ -188,62 +197,35 @@ export class BabylonSceneService {
     }
     this.edgeLines = []
 
-    // Create line material with better visibility
-    const lineMaterial = new BABYLON.StandardMaterial('edgeMaterial', this.scene)
-    lineMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8)
-    lineMaterial.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5)
-    lineMaterial.disableLighting = true
-    lineMaterial.alpha = 1.0
+    console.log(`Creating edge LineSystem for ${cellCount} cells...`)
 
-    // Get cell geometries to create proper hexagon/pentagon borders
-    const geometries = this.cellLookupService.getAllGeometries()
-    
-    console.log(`Creating edge lines for ${geometries.length} cells (hexagons + pentagons only)`)
+    const linePaths: BABYLON.Vector3[][] = []
 
-    // Create lines for each cell's outer perimeter
-    for (const geometry of geometries) {
-      const vertices = geometry.vertices
-      const vertexCount = vertices.length
-
-      // Create lines around the cell perimeter (skip center vertex)
-      for (let i = 0; i < vertexCount; i++) {
-        const next = (i + 1) % vertexCount
-        
-        const startPos = new BABYLON.Vector3(
-          vertices[i].x,
-          vertices[i].y, 
-          vertices[i].z
-        )
-        const endPos = new BABYLON.Vector3(
-          vertices[next].x,
-          vertices[next].y, 
-          vertices[next].z
-        )
-        
-        // Create line for this edge
-        const line = BABYLON.MeshBuilder.CreateLines(
-          `edge_${geometry.index}_${i}`,
-          { 
-            points: [startPos, endPos],
-            updatable: false,
-            useVertexAlpha: false
-          },
-          this.scene
-        )
-        
-        // Make lines more visible
-        line.color = new BABYLON.Color3(0.8, 0.8, 0.8)
-        line.alpha = 1.0
-        line.isPickable = false // Don't interfere with picking
-        
-        // Apply material
-        line.material = lineMaterial
-        
-        this.edgeLines.push(line)
-      }
+    // Build paths for each cell's outer perimeter
+    for (let i = 0; i < cellCount; i++) {
+      const vertices = this.cellLookupService.getCellPolygonVertices(i)
+      
+      const path = vertices.map(v => new BABYLON.Vector3(v.x, v.y, v.z))
+      // Close the loop
+      path.push(new BABYLON.Vector3(vertices[0].x, vertices[0].y, vertices[0].z))
+      
+      linePaths.push(path)
     }
+
+    // Create massive batch of lines as a single mesh
+    const edgeSystem = BABYLON.MeshBuilder.CreateLineSystem(
+      'edgeSystem',
+      { lines: linePaths, updatable: false },
+      this.scene
+    )
+
+    edgeSystem.color = new BABYLON.Color3(0.5, 0.5, 0.5)
+    edgeSystem.alpha = 0.5
+    edgeSystem.isPickable = false // Don't interfere with picking
     
-    console.log(`Created ${this.edgeLines.length} edge lines for hexagon/pentagon borders`)
+    this.edgeLines.push(edgeSystem)
+
+    console.log(`Created 1 edge LineSystem containing ${cellCount} closed loops`)
   }
 
   private createEarthSphere(): void {
@@ -264,50 +246,7 @@ export class BabylonSceneService {
     this.earthSphere.renderingGroupId = 0
   }
 
-  /**
-   * Create materials for highlighting
-   */
-  private createMaterials(): void {
-    if (!this.scene) return
 
-    this.originalMaterial = new BABYLON.StandardMaterial('originalMaterial', this.scene)
-    this.originalMaterial.diffuseColor = new BABYLON.Color3(0.2, 0.4, 0.8)
-    this.originalMaterial.specularColor = new BABYLON.Color3(0, 0, 0)
-    this.originalMaterial.backFaceCulling = false
-
-    this.highlightMaterial = new BABYLON.StandardMaterial('highlightMaterial', this.scene)
-    this.highlightMaterial.diffuseColor = new BABYLON.Color3(1, 1, 0)
-    this.highlightMaterial.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0)
-    this.highlightMaterial.backFaceCulling = false
-
-    this.hoverMaterial = new BABYLON.StandardMaterial('hoverMaterial', this.scene)
-    this.hoverMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.2)
-    this.hoverMaterial.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0)
-    this.hoverMaterial.backFaceCulling = false
-
-    this.multiMaterial = new BABYLON.MultiMaterial('gridMultiMaterial', this.scene)
-    this.multiMaterial.subMaterials.push(this.originalMaterial)
-    this.multiMaterial.subMaterials.push(this.highlightMaterial)
-    this.multiMaterial.subMaterials.push(this.hoverMaterial)
-  }
-
-  /**
-   * Create submeshes for each triangle
-   */
-  private createSubmeshes(triangleData: TriangleData): void {
-    if (!this.gridMesh) return
-
-    this.gridMesh.subMeshes = []
-    const triangleCount = triangleData.triangleToCell.length
-
-    for (let i = 0; i < triangleCount; i++) {
-      const startIndex = i * 3
-      const indexCount = 3
-      const materialIndex = 0 // Start with original material
-
-      new BABYLON.SubMesh(materialIndex, 0, triangleCount, startIndex, indexCount, this.gridMesh)
-    }
-  }
 
   /**
    * Setup picking interactions
@@ -316,13 +255,13 @@ export class BabylonSceneService {
     if (!this.scene || !this.gridMesh) return
 
     this.scene.onPointerObservable.add((pointerInfo) => {
-      if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERPICK && 
-          pointerInfo.pickInfo?.hit && 
-          pointerInfo.pickInfo.faceId !== undefined) {
-        
+      if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERPICK &&
+        pointerInfo.pickInfo?.hit &&
+        pointerInfo.pickInfo.faceId !== undefined) {
+
         const faceId = pointerInfo.pickInfo.faceId
         console.log(`Pointer pick hit faceId: ${faceId}`)
-        
+
         if (pointerInfo.event.button === 0) { // Left click
           console.log('Left click - selecting cell')
           this.selectionService.selectCellByTriangle(faceId)
@@ -364,7 +303,7 @@ export class BabylonSceneService {
   }
 
   /**
-   * Update mesh highlighting based on selection state
+   * Update mesh highlighting based on selection state by modifying Vertex Colors directly
    */
   private updateHighlighting(): void {
     if (!this.gridMesh || !this.cellLookupService) return
@@ -373,48 +312,53 @@ export class BabylonSceneService {
     const selectedCells = this.selectionService.selectedCells()
     const hoveredCell = this.selectionService.hoveredCell()
 
-    console.log('Updating highlighting:', { selectedCell, selectedCells: selectedCells.length, hoveredCell })
+    const colors = this.gridMesh.getVerticesData(BABYLON.VertexBuffer.ColorKind) as Float32Array
+    if (!colors) return
+    
+    const indices = this.gridMesh.getIndices()
+    if (!indices) return
 
-    // Reset all triangles to original material
-    for (let i = 0; i < this.gridMesh.subMeshes.length; i++) {
-      this.gridMesh.subMeshes[i].materialIndex = 0
+    // 1. Reset all triangles to base color
+    for (let i = 0; i < colors.length; i += 4) {
+      colors[i] = 0.2
+      colors[i + 1] = 0.4
+      colors[i + 2] = 0.8
     }
 
-    // Apply hover highlighting
+    // Helper to color a specific cell
+    const applyColorToCell = (cell: CellID, r: number, g: number, b: number) => {
+      const triangles = this.cellLookupService!.getTrianglesForCell(cell)
+      for (const t of triangles) {
+        const i1 = indices[t * 3]
+        const i2 = indices[t * 3 + 1]
+        const i3 = indices[t * 3 + 2]
+
+        // Vertex 1
+        colors[i1 * 4] = r; colors[i1 * 4 + 1] = g; colors[i1 * 4 + 2] = b;
+        // Vertex 2
+        colors[i2 * 4] = r; colors[i2 * 4 + 1] = g; colors[i2 * 4 + 2] = b;
+        // Vertex 3
+        colors[i3 * 4] = r; colors[i3 * 4 + 1] = g; colors[i3 * 4 + 2] = b;
+      }
+    }
+
+    // Apply hover highlighting (Yellow-ish)
     if (hoveredCell && !this.isCellSelected(hoveredCell)) {
-      const triangles = this.cellLookupService.getTrianglesForCell(hoveredCell)
-      console.log(`Hovering cell, triangles:`, triangles)
-      for (const triangle of triangles) {
-        if (triangle < this.gridMesh.subMeshes.length) {
-          this.gridMesh.subMeshes[triangle].materialIndex = 2 // Hover material
-        }
-      }
+      applyColorToCell(hoveredCell, 0.8, 0.8, 0.2)
     }
 
-    // Apply selection highlighting
+    // Apply primary selection highlighting (Bright Yellow)
     if (selectedCell) {
-      const triangles = this.cellLookupService.getTrianglesForCell(selectedCell)
-      console.log(`Selected single cell, triangles:`, triangles)
-      for (const triangle of triangles) {
-        if (triangle < this.gridMesh.subMeshes.length) {
-          this.gridMesh.subMeshes[triangle].materialIndex = 1 // Highlight material
-        }
-      }
+      applyColorToCell(selectedCell, 1.0, 1.0, 0.0)
     }
 
-    // Apply multi-selection highlighting
+    // Apply multi-selection highlighting (Bright Yellow)
     for (const cell of selectedCells) {
-      const triangles = this.cellLookupService.getTrianglesForCell(cell)
-      console.log(`Selected multi cell, triangles:`, triangles)
-      for (const triangle of triangles) {
-        if (triangle < this.gridMesh.subMeshes.length) {
-          this.gridMesh.subMeshes[triangle].materialIndex = 1 // Highlight material
-        }
-      }
+      applyColorToCell(cell, 1.0, 1.0, 0.0)
     }
 
-    // Refresh mesh
-    this.gridMesh.refreshBoundingInfo()
+    // Update the buffer up to the GPU
+    this.gridMesh.updateVerticesData(BABYLON.VertexBuffer.ColorKind, colors)
   }
 
   /**
@@ -425,14 +369,14 @@ export class BabylonSceneService {
     const selectedCells = this.selectionService.selectedCells()
 
     if (selectedCell) {
-      return selectedCell.face === cell.face && 
-             selectedCell.q === cell.q && 
-             selectedCell.r === cell.r
+      return selectedCell.face === cell.face &&
+        selectedCell.q === cell.q &&
+        selectedCell.r === cell.r
     }
 
-    return selectedCells.some(c => 
-      c.face === cell.face && 
-      c.q === cell.q && 
+    return selectedCells.some(c =>
+      c.face === cell.face &&
+      c.q === cell.q &&
       c.r === cell.r
     )
   }
@@ -445,44 +389,29 @@ export class BabylonSceneService {
       this.gridMesh.dispose()
       this.gridMesh = null
     }
-    
+
     if (this.earthSphere) {
       this.earthSphere.dispose()
       this.earthSphere = null
     }
-    
+
     if (this.edgeLines) {
       for (const line of this.edgeLines) {
         line.dispose()
       }
       this.edgeLines = []
     }
-    
-    if (this.originalMaterial) {
-      this.originalMaterial.dispose()
-      this.originalMaterial = null
+
+    if (this.gridMaterial) {
+      this.gridMaterial.dispose()
+      this.gridMaterial = null
     }
-    
-    if (this.highlightMaterial) {
-      this.highlightMaterial.dispose()
-      this.highlightMaterial = null
-    }
-    
-    if (this.hoverMaterial) {
-      this.hoverMaterial.dispose()
-      this.hoverMaterial = null
-    }
-    
-    if (this.multiMaterial) {
-      this.multiMaterial.dispose()
-      this.multiMaterial = null
-    }
-    
+
     if (this.scene) {
       this.scene.dispose()
       this.scene = null
     }
-    
+
     if (this.engine) {
       this.engine.dispose()
       this.engine = null

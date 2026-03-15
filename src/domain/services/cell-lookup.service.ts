@@ -1,26 +1,30 @@
 import { CellID } from '../models/cell-id'
-import { TriangleData, CellGeometry } from './cell-geometry-generator'
+import { GoldbergMesh } from '../geometry/models/geometry-types'
+
+export interface Point3D {
+  x: number
+  y: number
+  z: number
+}
 
 export class CellLookupService {
-  private triangleToCell: Uint32Array
+  private meshData: GoldbergMesh
   private cells: CellID[]
-  private geometries: CellGeometry[]
 
-  constructor(triangleData: TriangleData, cells: CellID[], geometries: CellGeometry[]) {
-    this.triangleToCell = triangleData.triangleToCell
+  constructor(meshData: GoldbergMesh, cells: CellID[]) {
+    this.meshData = meshData
     this.cells = cells
-    this.geometries = geometries
   }
 
   /**
    * Get cell ID from triangle index
    */
   getCellFromTriangle(triangleIndex: number): CellID | null {
-    if (triangleIndex < 0 || triangleIndex >= this.triangleToCell.length) {
+    if (triangleIndex < 0 || triangleIndex >= this.meshData.triangleToCell.length) {
       return null
     }
 
-    const cellIndex = this.triangleToCell[triangleIndex]
+    const cellIndex = this.meshData.triangleToCell[triangleIndex]
     return this.cells[cellIndex] || null
   }
 
@@ -28,11 +32,11 @@ export class CellLookupService {
    * Get cell index from triangle index
    */
   getCellIndexFromTriangle(triangleIndex: number): number | null {
-    if (triangleIndex < 0 || triangleIndex >= this.triangleToCell.length) {
+    if (triangleIndex < 0 || triangleIndex >= this.meshData.triangleToCell.length) {
       return null
     }
 
-    return this.triangleToCell[triangleIndex]
+    return this.meshData.triangleToCell[triangleIndex]
   }
 
   /**
@@ -59,8 +63,8 @@ export class CellLookupService {
   getTrianglesForCellIndex(cellIndex: number): number[] {
     const triangles: number[] = []
 
-    for (let i = 0; i < this.triangleToCell.length; i++) {
-      if (this.triangleToCell[i] === cellIndex) {
+    for (let i = 0; i < this.meshData.triangleToCell.length; i++) {
+      if (this.meshData.triangleToCell[i] === cellIndex) {
         triangles.push(i)
       }
     }
@@ -72,14 +76,14 @@ export class CellLookupService {
    * Check if triangle index is valid
    */
   isValidTriangle(triangleIndex: number): boolean {
-    return triangleIndex >= 0 && triangleIndex < this.triangleToCell.length
+    return triangleIndex >= 0 && triangleIndex < this.meshData.triangleToCell.length
   }
 
   /**
    * Get total number of triangles
    */
   getTriangleCount(): number {
-    return this.triangleToCell.length
+    return this.meshData.triangleToCell.length
   }
 
   /**
@@ -90,15 +94,36 @@ export class CellLookupService {
   }
 
   /**
+   * Get the ordered 3D vertices of the polygon for a given cell.
+   * Extracts directly from the final geometry buffers.
+   */
+  getCellPolygonVertices(cellIndex: number): Point3D[] {
+    const tris = this.getTrianglesForCellIndex(cellIndex)
+    const vertices: Point3D[] = []
+
+    for (const tri of tris) {
+      // The secondary index of a fan triangle gives the polygon boundary vertex
+      const vIdx = this.meshData.indices[tri * 3 + 1]
+      vertices.push({
+        x: this.meshData.vertices[vIdx * 3],
+        y: this.meshData.vertices[vIdx * 3 + 1],
+        z: this.meshData.vertices[vIdx * 3 + 2]
+      })
+    }
+
+    return vertices
+  }
+
+  /**
    * Validate lookup service consistency
    */
   validate(): boolean {
-    const triangleCount = this.triangleToCell.length
+    const triangleCount = this.meshData.triangleToCell.length
     const cellCount = this.cells.length
 
     // Check that all cell indices are valid
     for (let i = 0; i < triangleCount; i++) {
-      const cellIndex = this.triangleToCell[i]
+      const cellIndex = this.meshData.triangleToCell[i]
       if (cellIndex < 0 || cellIndex >= cellCount) {
         console.error(`Invalid cell index ${cellIndex} at triangle ${i}`)
         return false
@@ -107,38 +132,20 @@ export class CellLookupService {
 
     // Check that every cell has at least one triangle
     const cellTriangleCounts = new Map<number, number>()
-    for (const cellIndex of this.triangleToCell) {
+    for (const cellIndex of this.meshData.triangleToCell) {
       cellTriangleCounts.set(cellIndex, (cellTriangleCounts.get(cellIndex) || 0) + 1)
     }
 
     for (let i = 0; i < cellCount; i++) {
-      const triangleCount = cellTriangleCounts.get(i) || 0
-      if (triangleCount === 0) {
+      const tCount = cellTriangleCounts.get(i) || 0
+      if (tCount === 0) {
         console.error(`Cell ${i} has no triangles`)
         return false
-      }
-      
-      // Check that hex cells have 6 triangles and pentagons have 5
-      const cell = this.cells[i]
-      const expectedTriangles = this.isPentagon(cell) ? 5 : 6
-      if (triangleCount !== expectedTriangles) {
-        console.warn(`Cell ${i} has ${triangleCount} triangles, expected ${expectedTriangles} (validation disabled for debugging)`)
-        // return false // Temporarily disabled for debugging
       }
     }
 
     console.log(`CellLookup validation passed: ${triangleCount} triangles, ${cellCount} cells`)
     return true
-  }
-
-  /**
-   * Check if a cell is a pentagon
-   */
-  private isPentagon(cell: CellID): boolean {
-    const n = cell.resolution
-    return (cell.q === 0 && cell.r === 0) ||
-           (cell.q === n && cell.r === 0) ||
-           (cell.q === 0 && cell.r === n)
   }
 
   /**
@@ -154,8 +161,9 @@ export class CellLookupService {
     let pentagonCount = 0
     let hexagonCount = 0
 
-    for (const cell of this.cells) {
-      if (this.isPentagon(cell)) {
+    const domainCells = this.meshData.cells
+    for (const cell of domainCells) {
+      if (cell.isPentagon) {
         pentagonCount++
       } else {
         hexagonCount++
@@ -163,18 +171,11 @@ export class CellLookupService {
     }
 
     return {
-      totalTriangles: this.triangleToCell.length,
+      totalTriangles: this.meshData.triangleToCell.length,
       totalCells: this.cells.length,
       pentagonCount,
       hexagonCount,
-      avgTrianglesPerCell: this.triangleToCell.length / this.cells.length
+      avgTrianglesPerCell: this.meshData.triangleToCell.length / this.cells.length
     }
-  }
-
-  /**
-   * Get all cell geometries for edge rendering
-   */
-  getAllGeometries(): CellGeometry[] {
-    return this.geometries
   }
 }

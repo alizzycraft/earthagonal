@@ -49,19 +49,19 @@ export class App implements OnInit {
       
       // Initialize Goldberg grid
       console.log('Step 2: Initializing Goldberg grid...')
-      await this.gridService.initializeGrid(4) // Resolution 4 (2,562 faces - matches m=16,n=0)
+      await this.gridService.initializeGrid(16) // Resolution 16 (2,562 faces)
       
-      // Create mesh from triangle data
-      console.log('Step 3: Getting triangle data...')
-      const triangleData = this.gridService.getTriangleData()
+      // Create mesh from optimization data
+      console.log('Step 3: Getting generation data...')
+      const meshData = this.gridService.getMeshData()
       const cellLookupService = this.gridService.getCellLookupService()
       
-      console.log('Step 4: Triangle data:', triangleData ? 'found' : 'missing')
+      console.log('Step 4: Generation data:', meshData ? 'found' : 'missing')
       console.log('Step 5: Cell lookup service:', cellLookupService ? 'found' : 'missing')
       
-      if (triangleData && cellLookupService) {
+      if (meshData && cellLookupService) {
         console.log('Step 6: Creating grid mesh...')
-        this.babylonScene.createGridMesh(triangleData, cellLookupService)
+        this.babylonScene.createGridMesh(meshData, cellLookupService)
         this.isInitialized = true
         
         // Log statistics
@@ -93,18 +93,12 @@ export class App implements OnInit {
     
     console.log(`Selected cell:`, selectedCell)
     
-    // Get metadata for selected cell
+    // Cell metadata fetching
     const metadata = this.faceRepository.getMetadata(selectedCell)
     if (metadata) {
       console.log('Cell metadata:', metadata)
     } else {
       console.log('No metadata found for this cell')
-    }
-    
-    // Get geometry info
-    const geometry = this.gridService.getCellGeometry(selectedCell)
-    if (geometry) {
-      console.log(`Cell geometry: ${geometry.vertices.length} vertices, ${geometry.isPentagon ? 'pentagon' : 'hexagon'}`)
     }
   }
 
