@@ -145,11 +145,14 @@ export class BabylonSceneService {
       this.scene
     )
     this.camera.attachControl(canvas, true)
-    this.camera.wheelPrecision = 50
+    this.camera.wheelPrecision = 0.15 // Balanced fast zoom (user requested)
     
     // Set camera limits to prevent getting too far or too close
-    this.camera.lowerRadiusLimit = Icosahedron.EARTH_RADIUS_KM * 1.1 // Minimum zoom
-    this.camera.upperRadiusLimit = Icosahedron.EARTH_RADIUS_KM * 5   // Maximum zoom
+    this.camera.lowerRadiusLimit = Icosahedron.EARTH_RADIUS_KM * 1.05 // Closer minimum zoom
+    this.camera.upperRadiusLimit = Icosahedron.EARTH_RADIUS_KM * 20  // Much further maximum zoom
+    
+    // Increase far plane to prevent disappearing at distance
+    this.camera.maxZ = 100000 // Much higher far plane for distant viewing
   }
 
   /**
