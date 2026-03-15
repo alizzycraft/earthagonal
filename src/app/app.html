@@ -1,1 +1,16 @@
 <canvas #babylonCanvas id="babylon-canvas"></canvas>
+
+<!-- HUD Overlays -->
+<app-cell-hud 
+  class="hud-top-left"
+  title="Selected Cell"
+  [cell]="selectionService.selectedCell()"
+  id="selected-hud">
+</app-cell-hud>
+
+<app-cell-hud 
+  class="hud-top-right"
+  title="Hovering Over"
+  [cell]="selectionService.hoveredCell()"
+  id="hover-hud">
+</app-cell-hud>

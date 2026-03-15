@@ -178,4 +178,23 @@ export class CellLookupService {
       avgTrianglesPerCell: this.meshData.triangleToCell.length / this.cells.length
     }
   }
+
+  /**
+   * Get the type of the cell (pentagon or hexagon)
+   */
+  getCellType(cell: CellID): 'pentagon' | 'hexagon' {
+    const index = this.findCellIndex(cell)
+    if (index === -1) return 'hexagon' // Default
+    
+    return this.meshData.cells[index].isPentagon ? 'pentagon' : 'hexagon'
+  }
+
+  private findCellIndex(cell: CellID): number {
+    return this.cells.findIndex(c => 
+      c.face === cell.face && 
+      c.q === cell.q && 
+      c.r === cell.r && 
+      c.resolution === cell.resolution
+    )
+  }
 }

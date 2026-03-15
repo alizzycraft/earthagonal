@@ -1,0 +1,62 @@
+<div class="cell-hud-container" [class.visible]="cell" [id]="id">
+  <div class="hud-header">
+    <h3>{{ title }}</h3>
+    <span class="badge" *ngIf="cellType === 'pentagon'">Pentagon</span>
+    <span class="badge" *ngIf="cellType === 'hexagon'">Hexagon</span>
+  </div>
+
+  <div class="hud-section" *ngIf="cell">
+    <span class="section-title">Indexing</span>
+    <div class="data-grid">
+      <div class="data-item">
+        <span class="label">Face</span>
+        <span class="value">{{ cell.face }}</span>
+      </div>
+      <div class="data-item">
+        <span class="label">Q</span>
+        <span class="value">{{ cell.q }}</span>
+      </div>
+      <div class="data-item">
+        <span class="label">R</span>
+        <span class="value">{{ cell.r }}</span>
+      </div>
+      <div class="data-item">
+        <span class="label">Res</span>
+        <span class="value">{{ cell.resolution }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="hud-section" *ngIf="metadata">
+    <span class="section-title">Cell Info</span>
+    <div class="metadata-card">
+      <span class="cell-name" *ngIf="metadata.name">{{ metadata.name }}</span>
+      <span class="cell-type" *ngIf="metadata.type">{{ metadata.type }}</span>
+      
+      <div class="property-list" *ngIf="metadata.properties">
+        <div class="property-item" *ngFor="let prop of properties">
+          <span>{{ prop.key }}</span>
+          <span>{{ prop.value }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hud-section" *ngIf="metadata?.centroid">
+    <span class="section-title">Coordinates</span>
+    <div class="coordinates-section">
+      <div class="coords-line">
+        <span>LAT:</span>
+        <span class="coord-val">{{ metadata!.centroid.lat | number:'1.4-4' }}°</span>
+      </div>
+      <div class="coords-line">
+        <span>LON:</span>
+        <span class="coord-val">{{ metadata!.centroid.lon | number:'1.4-4' }}°</span>
+      </div>
+      <div class="coords-line">
+        <span>ALT:</span>
+        <span class="coord-val">{{ metadata!.centroid.alt | number:'1.1-1' }}km</span>
+      </div>
+    </div>
+  </div>
+</div>

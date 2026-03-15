@@ -1,5 +1,32 @@
 :host {
   display: block;
+  position: relative;
   width: 100%;
   height: 100vh;
+  overflow: hidden;
+}
+
+#babylon-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.hud-top-left {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 100;
+  pointer-events: none; /* Let clicks pass through to canvas if needed, though hud-container has pointer-events: auto */
+}
+
+.hud-top-right {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 100;
+  pointer-events: none;
 }

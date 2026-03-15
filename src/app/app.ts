@@ -5,9 +5,12 @@ import { SelectionService } from '../presentation/services/selection.service'
 import { FaceRepository } from '../infrastructure/repositories/face.repository'
 import { CalibrationService } from '../infrastructure/services/calibration.service'
 import { CellID } from '../domain/models/cell-id'
+import { CellHudComponent } from './cell-hud.component'
 
 @Component({
   selector: 'app-root',
+  standalone: true,
+  imports: [CellHudComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss'
 })
@@ -21,7 +24,7 @@ export class App implements OnInit {
   constructor(
     private babylonScene: BabylonSceneService,
     private gridService: GoldbergGridService,
-    private selectionService: SelectionService,
+    public selectionService: SelectionService,
     private faceRepository: FaceRepository,
     private calibrationService: CalibrationService,
     private destroyRef: DestroyRef
