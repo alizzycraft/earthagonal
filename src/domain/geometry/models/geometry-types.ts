@@ -17,6 +17,7 @@ export interface GoldbergMesh {
   vertices: Float32Array
   normals: Float32Array
   indices: Uint32Array
+  colors: Float32Array
   cells: Cell[]
   triangleToCell: Uint32Array
 }

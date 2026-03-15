@@ -1,16 +1,30 @@
-import { Cell } from './models/geometry-types'
+import { Cell, Vec3 } from './models/geometry-types'
 
 const RELAXATION_FACTOR = 0.35
-const RELAXATION_ITERATIONS = 3
+const RELAXATION_ITERATIONS = 5 // Increased for better alignment
+
+export interface RelaxationWeights {
+  terrainWeights: Float32Array   // [cellCount] - multiplier for movement
+  coastWeights: Float32Array     // [cellCount] - multiplier for coastline alignment
+  coastDirections: Vec3[]        // [cellCount] - directions for alignment
+}
 
 export class HexRelaxation {
   /**
    * Relax the centers of the cells toward their geometric polygon centroids.
    * Modifies cellCenters directly.
    */
-  static relax(cells: Cell[], cellCenters: Float32Array, triangleCenters: Float32Array): void {
+  static relax(
+    cells: Cell[], 
+    cellCenters: Float32Array, 
+    triangleCenters: Float32Array,
+    weights?: RelaxationWeights
+  ): void {
+    const ALIGNMENT_STRENGTH = 0.015 // ~1.5% cell radius per iteration
+
     for (let iter = 0; iter < RELAXATION_ITERATIONS; iter++) {
-      for (const cell of cells) {
+      for (let i = 0; i < cells.length; i++) {
+        const cell = cells[i]
         if (cell.isPentagon) continue
 
         let cx = 0, cy = 0, cz = 0
@@ -38,10 +52,28 @@ export class HexRelaxation {
         const oy = cellCenters[vIdx + 1]
         const oz = cellCenters[vIdx + 2]
 
-        // Damped interpolation: current + FACTOR * (centroid - current)
-        let nx = ox + RELAXATION_FACTOR * (cx - ox)
-        let ny = oy + RELAXATION_FACTOR * (cy - oy)
-        let nz = oz + RELAXATION_FACTOR * (cz - oz)
+        // Base move vector
+        let moveX = cx - ox
+        let moveY = cy - oy
+        let moveZ = cz - oz
+
+        // Apply terrain weight
+        let tWeight = weights ? weights.terrainWeights[i] : 1.0
+        
+        // Damped interpolation: current + FACTOR * weight * move
+        let nx = ox + RELAXATION_FACTOR * tWeight * moveX
+        let ny = oy + RELAXATION_FACTOR * tWeight * moveY
+        let nz = oz + RELAXATION_FACTOR * tWeight * moveZ
+
+        // Apply coastline-aware bias
+        if (weights && weights.coastWeights[i] > 0) {
+          const cWeight = weights.coastWeights[i]
+          const cDir = weights.coastDirections[i]
+          
+          nx += cWeight * cDir.x * ALIGNMENT_STRENGTH
+          ny += cWeight * cDir.y * ALIGNMENT_STRENGTH
+          nz += cWeight * cDir.z * ALIGNMENT_STRENGTH
+        }
 
         // Project new center back to sphere
         const lNew = Math.sqrt(nx * nx + ny * ny + nz * nz)

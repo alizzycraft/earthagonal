@@ -18,6 +18,7 @@ export class BabylonSceneService {
   private earthSphere: BABYLON.Mesh | null = null
   private edgeLines: BABYLON.Mesh[] = []
   private cellLookupService: CellLookupService | null = null
+  private baseColors: Float32Array | null = null
 
   // Single material
   private gridMaterial: BABYLON.StandardMaterial | null = null
@@ -98,15 +99,9 @@ export class BabylonSceneService {
     vertexData.positions = Array.from(meshData.vertices)
     vertexData.normals = Array.from(meshData.normals)
 
-    // Setup initially uniform colors
-    const colors = new Float32Array((meshData.vertices.length / 3) * 4)
-    for (let i = 0; i < colors.length; i += 4) {
-      colors[i] = 0.2     // R
-      colors[i + 1] = 0.4 // G
-      colors[i + 2] = 0.8 // B
-      colors[i + 3] = 1.0 // A
-    }
-    vertexData.colors = colors
+    // Use generated terrain colors
+    vertexData.colors = meshData.colors
+    this.baseColors = new Float32Array(meshData.colors)
 
     // applyToMesh(mesh, updatable) -> true for dynamic colors
     vertexData.applyToMesh(this.gridMesh!, true)
@@ -324,11 +319,9 @@ export class BabylonSceneService {
     const indices = this.gridMesh.getIndices()
     if (!indices) return
 
-    // 1. Reset all triangles to base color
-    for (let i = 0; i < colors.length; i += 4) {
-      colors[i] = 0.2
-      colors[i + 1] = 0.4
-      colors[i + 2] = 0.8
+    // 1. Reset all triangles to terrain base color
+    if (this.baseColors) {
+      colors.set(this.baseColors)
     }
 
     // Helper to color a specific cell
