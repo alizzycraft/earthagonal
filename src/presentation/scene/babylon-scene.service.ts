@@ -155,6 +155,10 @@ export class BabylonSceneService {
     )
     this.camera.attachControl(canvas, true)
     this.camera.wheelPrecision = 0.1 // Balanced fast zoom (user requested)
+    
+    // Decrease rotation speed to account for massive Earth radius
+    this.camera.angularSensibilityX = 5000 // Higher number = slower rotation
+    this.camera.angularSensibilityY = 5000 
 
     // Set camera limits to prevent getting too far or too close
     this.camera.lowerRadiusLimit = Icosahedron.EARTH_RADIUS_KM * 1.05 // Closer minimum zoom
@@ -162,6 +166,7 @@ export class BabylonSceneService {
 
     // Increase far plane to prevent disappearing at distance
     this.camera.maxZ = 100000 // Much higher far plane for distant viewing
+    this.camera.minZ = 100    // Higher near plane for vastly improved depth buffer precision at scale
   }
 
   /**
@@ -200,14 +205,15 @@ export class BabylonSceneService {
     console.log(`Creating edge LineSystem for ${cellCount} cells...`)
 
     const linePaths: BABYLON.Vector3[][] = []
+    const LINE_OFFSET = 1.0005 // Push lines outward ~3km to prevent z-fighting with the hex faces
 
     // Build paths for each cell's outer perimeter
     for (let i = 0; i < cellCount; i++) {
       const vertices = this.cellLookupService.getCellPolygonVertices(i)
       
-      const path = vertices.map(v => new BABYLON.Vector3(v.x, v.y, v.z))
+      const path = vertices.map(v => new BABYLON.Vector3(v.x * LINE_OFFSET, v.y * LINE_OFFSET, v.z * LINE_OFFSET))
       // Close the loop
-      path.push(new BABYLON.Vector3(vertices[0].x, vertices[0].y, vertices[0].z))
+      path.push(new BABYLON.Vector3(vertices[0].x * LINE_OFFSET, vertices[0].y * LINE_OFFSET, vertices[0].z * LINE_OFFSET))
       
       linePaths.push(path)
     }
