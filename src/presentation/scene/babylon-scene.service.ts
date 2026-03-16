@@ -152,6 +152,13 @@ export class BabylonSceneService {
     this.camera.attachControl(canvas, true)
     this.camera.wheelPrecision = 0.05 // Balanced fast zoom (user requested)
 
+    // Configure touch gestures for mobile devices
+    this.camera.pinchPrecision = 0.5 // Pinch sensitivity for zoom
+    this.camera.pinchDeltaPercentage = 0.02 // Percentage of distance change per pinch event
+    this.camera.multiTouchPanAndZoom = true // Enable pinch to zoom
+    this.camera.touchAngularSensibility = 10000 // Touch rotation sensitivity (higher = slower)
+    this.camera.touchMoveSensibility = 100 // Touch pan sensitivity
+
     // Decrease rotation speed to account for massive Earth radius
     this.camera.angularSensibilityX = 5000 // Higher number = slower rotation
     this.camera.angularSensibilityY = 5000
@@ -256,9 +263,11 @@ export class BabylonSceneService {
     if (!this.scene || !this.gridMesh) return
 
     this.scene.onPointerObservable.add((pointerInfo) => {
+      // Handle touch events differently to avoid conflicts with pinch-to-zoom
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERPICK &&
         pointerInfo.pickInfo?.hit &&
-        pointerInfo.pickInfo.faceId !== undefined) {
+        pointerInfo.pickInfo.faceId !== undefined &&
+        pointerInfo.event.pointerType === 'mouse') { // Only process mouse clicks, not touch
 
         const faceId = pointerInfo.pickInfo.faceId
         console.log(`Pointer pick hit faceId: ${faceId}`)
@@ -268,14 +277,30 @@ export class BabylonSceneService {
           this.selectionService.selectCellByTriangle(faceId)
         }
       } else if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
-        // Handle hover
-        if (pointerInfo.pickInfo?.hit && pointerInfo.pickInfo.faceId !== undefined) {
-          console.log(`Hover faceId: ${pointerInfo.pickInfo.faceId}`)
-          this.selectionService.setHoveredByTriangle(pointerInfo.pickInfo.faceId)
-        } else {
-          console.log('Hover cleared')
-          this.selectionService.clearHover()
+        // Handle hover only for mouse events
+        if (pointerInfo.event.pointerType === 'mouse') {
+          // Handle hover
+          if (pointerInfo.pickInfo?.hit && pointerInfo.pickInfo.faceId !== undefined) {
+            console.log(`Hover faceId: ${pointerInfo.pickInfo.faceId}`)
+            this.selectionService.setHoveredByTriangle(pointerInfo.pickInfo.faceId)
+          } else {
+            console.log('Hover cleared')
+            this.selectionService.clearHover()
+          }
         }
+      }
+    })
+
+    // Add touch-specific event handling for cell selection on mobile
+    this.scene.onPointerObservable.add((pointerInfo) => {
+      if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERTAP &&
+          pointerInfo.event.pointerType === 'touch' &&
+          pointerInfo.pickInfo?.hit &&
+          pointerInfo.pickInfo.faceId !== undefined) {
+        
+        const faceId = pointerInfo.pickInfo.faceId
+        console.log(`Touch tap hit faceId: ${faceId}`)
+        this.selectionService.selectCellByTriangle(faceId)
       }
     })
   }
