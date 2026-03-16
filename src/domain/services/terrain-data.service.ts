@@ -10,7 +10,7 @@ export class TerrainDataService {
   private readyPromise: Promise<void>
 
   constructor() {
-    this.readyPromise = this.loadHeightmap('/assets/data/height-combined.png')
+    this.readyPromise = this.loadHeightmap('assets/data/height-combined.png')
   }
 
   /**

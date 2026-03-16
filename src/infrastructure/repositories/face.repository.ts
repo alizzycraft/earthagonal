@@ -8,7 +8,7 @@ import { cellIDToString, cellIDFromString } from '../../domain/models/cell-id'
 })
 export class FaceRepository {
   private metadata: Map<string, FaceMetadata> = new Map()
-  private dataUrl = '/assets/data/faces.json'
+  private dataUrl = 'assets/data/faces.json'
   private isLoaded = false
 
   constructor() {
