@@ -20,6 +20,7 @@ export class CellHudComponent implements OnChanges {
   metadata: FaceMetadata | undefined;
   properties: { key: string, value: any }[] = [];
   cellType: 'pentagon' | 'hexagon' = 'hexagon';
+  isExpanded: boolean = false;
 
   constructor(
     private faceRepository: FaceRepository,
@@ -28,8 +29,16 @@ export class CellHudComponent implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['cell']) {
+      this.isExpanded = false; // Reset to collapsed when selection changes
       this.updateMetadata();
     }
+  }
+
+  toggleExpand(event: Event): void {
+    // Only toggle if on mobile or if we want to allow it on desktop too
+    // For now, let's always allow toggle but it will mostly be used on mobile
+    this.isExpanded = !this.isExpanded;
+    event.stopPropagation();
   }
 
   private updateMetadata(): void {

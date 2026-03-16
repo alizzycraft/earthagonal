@@ -18,13 +18,19 @@
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   user-select: none;
   pointer-events: auto;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 0;
   transform: translateY(-10px);
+  cursor: pointer;
+  overflow: hidden;
   
   &.visible {
     opacity: 1;
     transform: translateY(0);
+  }
+
+  &:hover {
+    border-color: rgba(255, 255, 255, 0.2);
   }
 }
 
@@ -34,6 +40,7 @@
   align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 8px;
+  min-height: 24px;
 
   h3 {
     margin: 0;
@@ -44,6 +51,12 @@
     color: #94a3b8;
   }
 
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .badge {
     font-size: 0.75rem;
     padding: 2px 8px;
@@ -51,6 +64,90 @@
     background: rgba(255, 255, 0, 0.1);
     color: #facc15;
     border: 1px solid rgba(255, 255, 0, 0.2);
+  }
+
+  .expand-toggle {
+    display: none; // Hidden on desktop
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #38bdf8;
+    line-height: 1;
+  }
+}
+
+.collapsed-info {
+  display: none; // Hidden on desktop
+}
+
+.expanded-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Mobile Specific Logic */
+@media (max-width: 768px) {
+  .cell-hud-container {
+    min-width: 140px;
+    max-width: 200px;
+    padding: 10px 14px;
+    gap: 6px;
+
+    &.expanded {
+      max-width: 280px;
+      min-width: 260px;
+    }
+  }
+
+  .hud-header {
+    border-bottom: none;
+    padding-bottom: 0;
+
+    .badge {
+      display: none; // Hide badges on mobile to save space
+    }
+
+    .expand-toggle {
+      display: block;
+    }
+  }
+
+  .cell-hud-container.expanded .hud-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
+  }
+
+  .collapsed-info {
+    display: block;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.8rem;
+    color: #10b981;
+    margin-top: 4px;
+
+    .compact-coords {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      
+      .separator {
+        color: #64748b;
+        margin: 0 4px;
+      }
+    }
+  }
+
+  .expanded-content {
+    display: none;
+  }
+
+  .cell-hud-container.expanded {
+    .collapsed-info {
+      display: none;
+    }
+    .expanded-content {
+      display: flex;
+    }
   }
 }
 
