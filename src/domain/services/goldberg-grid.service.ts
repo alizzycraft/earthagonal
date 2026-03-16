@@ -36,16 +36,17 @@ export class GoldbergGridService {
     const start = performance.now()
 
     // Generate mesh using the optimized deterministic pipeline
-    this.meshData = this.goldbergGenerator.generateSphere(resolution)
+    this.meshData = await this.goldbergGenerator.generateSphere(resolution)
 
     console.log(`Generation took ${performance.now() - start}ms`)
 
     // Create mock cells for compatibility with existing tracking/selection systems
+    // In a real implementation, these would be derived from the generator's cell structure
     this.cells = this.meshData.cells.map((_, index) => {
        return {
          face: 0,
-         q: index % resolution,
-         r: Math.floor(index / resolution),
+         q: index % 100, // Dummy Q/R for legacy CellID format
+         r: Math.floor(index / 100),
          resolution
        }
     })
@@ -80,22 +81,25 @@ export class GoldbergGridService {
    * Initialize metadata for all cells
    */
   private async initializeMetadata(): Promise<void> {
-    const projection = new SphereProjection()
-    const centroids = projection.getCellsGPS(this.cells)
+    if (!this.meshData) return
 
-    // Create metadata for cells that don't have it
+    // Create metadata for cells using the newly generated terrain data
     for (let i = 0; i < this.cells.length; i++) {
       const cell = this.cells[i]
+      const terrain = this.meshData.cellTerrain[i]
       
-      if (!this.faceRepository.hasMetadata(cell)) {
-        const metadata = {
-          cell,
-          centroid: centroids[i],
-          properties: {}
+      const metadata = {
+        cell,
+        centroid: { lat: terrain.latitude, lon: terrain.longitude, alt: terrain.elevation },
+        type: terrain.terrainType,
+        terrain: terrain,
+        properties: {
+            landRatio: terrain.landRatio,
+            coastDistance: terrain.coastDistance
         }
-        
-        this.faceRepository.setMetadata(metadata)
       }
+      
+      this.faceRepository.setMetadata(metadata)
     }
 
     console.log(`Metadata initialized for ${this.cells.length} cells`)

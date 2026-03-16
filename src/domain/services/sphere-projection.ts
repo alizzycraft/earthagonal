@@ -1,3 +1,4 @@
+import { Injectable } from '@angular/core'
 import { CellID } from '../models/cell-id'
 import { Icosahedron, IcosahedronFace } from '../models/icosahedron'
 
@@ -19,6 +20,9 @@ export interface GPSCoords {
   alt: number
 }
 
+@Injectable({
+  providedIn: 'root'
+})
 export class SphereProjection {
   private vertices: Array<[number, number, number]>
   private faces: IcosahedronFace[]

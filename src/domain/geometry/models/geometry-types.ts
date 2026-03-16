@@ -1,3 +1,5 @@
+import { CellTerrain } from '../../models/cell-terrain'
+
 export interface Vec3 {
   x: number
   y: number
@@ -20,4 +22,5 @@ export interface GoldbergMesh {
   colors: Float32Array
   cells: Cell[]
   triangleToCell: Uint32Array
+  cellTerrain: CellTerrain[]
 }

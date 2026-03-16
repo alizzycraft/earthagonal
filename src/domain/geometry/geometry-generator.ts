@@ -1,20 +1,20 @@
 import { Cell, GoldbergMesh } from './models/geometry-types'
 import { Icosahedron } from '../models/icosahedron'
+import { CellTerrain } from '../models/cell-terrain'
 
 export class GeometryGenerator {
   static buildMesh(
     cells: Cell[], 
     cellCenters: Float32Array, 
     triangleCenters: Float32Array,
-    cellElevations: Float32Array,
+    cellTerrain: CellTerrain[],
     vertexElevations: Float32Array,
-    cellGPS: { lat: number, lon: number }[],
     vertexGPS: { lat: number, lon: number }[]
   ): GoldbergMesh {
     const C = cells.length
     const vertexCount = C * 7
     const indexCount = C * 18
-    const HEIGHT_SCALE = 0.00002 // Visual exaggeration
+    const HEIGHT_SCALE = 0.00003 // Slightly increased for visibility
 
     const meshVertices = new Float32Array(vertexCount * 3)
     const meshNormals = new Float32Array(vertexCount * 3)
@@ -29,6 +29,7 @@ export class GeometryGenerator {
 
     for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
       const cell = cells[cellIndex]
+      const terrain = cellTerrain[cellIndex]
       const polyVerts = cell.vertexIndices
 
       // 1. Write the central vertex of the fan
@@ -41,14 +42,14 @@ export class GeometryGenerator {
       meshNormals[vIdx+1] = ny
       meshNormals[vIdx+2] = nz
 
-      const cellElev = cellElevations[cellIndex]
+      const cellElev = terrain.elevation
       const cellRadius = Icosahedron.EARTH_RADIUS_KM + cellElev * HEIGHT_SCALE
       
       meshVertices[vIdx]   = nx * cellRadius
       meshVertices[vIdx+1] = ny * cellRadius
       meshVertices[vIdx+2] = nz * cellRadius
       
-      const cellColor = this.getColorForTerrain(cellElev, cellGPS[cellIndex].lat)
+      const cellColor = this.getColorForCell(terrain)
       meshColors[cIdx_buffer++] = cellColor.r
       meshColors[cIdx_buffer++] = cellColor.g
       meshColors[cIdx_buffer++] = cellColor.b
@@ -75,7 +76,9 @@ export class GeometryGenerator {
         meshVertices[vIdx+1] = vny * vertRadius
         meshVertices[vIdx+2] = vnz * vertRadius
 
-        const vertColor = this.getColorForTerrain(vertElev, vertexGPS[tIdx].lat)
+        // For simplicity, boundary vertices use a blend or the cell's base color
+        // Here we use the vertex's own elevation and latitude but cell's distance
+        const vertColor = this.getApproxColor(vertElev, vertexGPS[tIdx].lat, terrain.coastDistance)
         meshColors[cIdx_buffer++] = vertColor.r
         meshColors[cIdx_buffer++] = vertColor.g
         meshColors[cIdx_buffer++] = vertColor.b
@@ -102,27 +105,43 @@ export class GeometryGenerator {
       indices: new Uint32Array(meshIndices.buffer, 0, iIdx),
       colors: new Float32Array(meshColors.buffer, 0, cIdx_buffer),
       cells,
-      triangleToCell: new Uint32Array(triangleToCell.buffer, 0, tIdxWrite)
+      triangleToCell: new Uint32Array(triangleToCell.buffer, 0, tIdxWrite),
+      cellTerrain
     }
   }
 
-  private static getColorForTerrain(elevation: number, lat: number): { r: number, g: number, b: number } {
+  private static getColorForCell(terrain: CellTerrain): { r: number, g: number, b: number } {
+    return this.getApproxColor(terrain.elevation, terrain.latitude, terrain.coastDistance)
+  }
+
+  private static getApproxColor(elevation: number, lat: number, coastDistance: number): { r: number, g: number, b: number } {
     const absLat = Math.abs(lat)
     
-    // Polar regions
-    if (absLat > 80) return { r: 0.95, g: 0.95, b: 1.0 } // Ice
-    if (absLat > 70 && elevation > 0) return { r: 0.9, g: 0.9, b: 0.95 } // Snow on land
+    // 1. Polar Regions
+    if (absLat > 70) return { r: 0.95, g: 0.95, b: 1.0 } // Snow/Ice
     
-    // Ocean
+    // 2. Mountains
+    if (elevation > 4000) return { r: 0.9, g: 0.9, b: 0.95 } // High Mountain Snow
+    if (elevation > 2000) return { r: 0.4, g: 0.35, b: 0.3 } // Mountain rock
+    
+    // 3. Water
     if (elevation <= 0) {
-      if (elevation < -2000) return { r: 0.05, g: 0.1, b: 0.3 } // Deep ocean
-      return { r: 0.1, g: 0.3, b: 0.6 } // Ocean
+      if (coastDistance >= -2) return { r: 0.2, g: 0.5, b: 0.7 } // Coastal shelf
+      if (elevation < -4000) return { r: 0.05, g: 0.1, b: 0.3 } // Deep trench
+      return { r: 0.1, g: 0.3, b: 0.6 } // Standard ocean
     }
     
-    // Terrain
-    if (elevation < 200) return { r: 0.8, g: 0.7, b: 0.4 } // Beach
-    if (elevation < 1500) return { r: 0.2, g: 0.5, b: 0.2 } // Green
-    if (elevation < 3500) return { r: 0.4, g: 0.3, b: 0.2 } // Mountain
-    return { r: 0.9, g: 0.9, b: 1.0 } // Mountain Snow
+    // 4. Land
+    if (coastDistance === 0 || (coastDistance === 1 && elevation < 100)) {
+        return { r: 0.8, g: 0.75, b: 0.5 } // Beach / Sand
+    }
+
+    if (coastDistance > 6) {
+        return { r: 0.6, g: 0.55, b: 0.4 } // Dry interior / Steppe
+    }
+    
+    // Default temperate land
+    return { r: 0.2, g: 0.45, b: 0.2 } // Greenery
   }
 }
+

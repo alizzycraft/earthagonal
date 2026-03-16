@@ -1,11 +1,13 @@
 import { CellID } from './cell-id'
 import { GPSCoords } from '../services/sphere-projection'
+import { CellTerrain } from './cell-terrain'
 
 export interface FaceMetadata {
   cell: CellID
   centroid: GPSCoords
   name?: string
   type?: string
+  terrain?: CellTerrain
   properties?: Record<string, any>
 }
 
