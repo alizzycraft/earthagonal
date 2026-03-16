@@ -6,7 +6,6 @@
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build",
-    "build:ghpages": "ng build --configuration production --base-href /earthagonal/",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"
   },
