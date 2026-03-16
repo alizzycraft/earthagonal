@@ -155,9 +155,8 @@ export class BabylonSceneService {
     // Configure touch gestures for mobile devices
     this.camera.pinchPrecision = 0.5 // Pinch sensitivity for zoom
     this.camera.pinchDeltaPercentage = 0.02 // Percentage of distance change per pinch event
-    this.camera.multiTouchPanAndZoom = true // Enable pinch to zoom
-    this.camera.touchAngularSensibility = 10000 // Touch rotation sensitivity (higher = slower)
-    this.camera.touchMoveSensibility = 100 // Touch pan sensitivity
+    // multiTouchPanAndZoom is enabled by default in Babylon.js
+    // Touch sensitivity uses the same properties as mouse controls
 
     // Decrease rotation speed to account for massive Earth radius
     this.camera.angularSensibilityX = 5000 // Higher number = slower rotation
@@ -267,7 +266,7 @@ export class BabylonSceneService {
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERPICK &&
         pointerInfo.pickInfo?.hit &&
         pointerInfo.pickInfo.faceId !== undefined &&
-        pointerInfo.event.pointerType === 'mouse') { // Only process mouse clicks, not touch
+        pointerInfo.event.button !== undefined) { // Check if it's a mouse event (has button property)
 
         const faceId = pointerInfo.pickInfo.faceId
         console.log(`Pointer pick hit faceId: ${faceId}`)
@@ -278,7 +277,7 @@ export class BabylonSceneService {
         }
       } else if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
         // Handle hover only for mouse events
-        if (pointerInfo.event.pointerType === 'mouse') {
+        if (pointerInfo.event.button !== undefined) {
           // Handle hover
           if (pointerInfo.pickInfo?.hit && pointerInfo.pickInfo.faceId !== undefined) {
             console.log(`Hover faceId: ${pointerInfo.pickInfo.faceId}`)
@@ -294,7 +293,7 @@ export class BabylonSceneService {
     // Add touch-specific event handling for cell selection on mobile
     this.scene.onPointerObservable.add((pointerInfo) => {
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERTAP &&
-          pointerInfo.event.pointerType === 'touch' &&
+          pointerInfo.event.button === undefined && // Touch events don't have button property
           pointerInfo.pickInfo?.hit &&
           pointerInfo.pickInfo.faceId !== undefined) {
         
