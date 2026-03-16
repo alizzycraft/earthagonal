@@ -153,8 +153,17 @@ export class BabylonSceneService {
     this.camera.wheelPrecision = 0.05 // Balanced fast zoom (user requested)
 
     // Configure touch gestures for mobile devices
-    this.camera.pinchPrecision = 0.5 // Pinch sensitivity for zoom
-    this.camera.pinchDeltaPercentage = 0.02 // Percentage of distance change per pinch event
+    const isMobile = this.isMobileDevice();
+    
+    if (isMobile) {
+      // Mobile: Much less sensitive zoom
+      this.camera.pinchPrecision = 50 // Much lower sensitivity (higher number = slower zoom)
+      this.camera.pinchDeltaPercentage = 0.001 // Much smaller percentage change per pinch event
+    } else {
+      // Desktop: Original responsive values
+      this.camera.pinchPrecision = 0.5 // Pinch sensitivity for zoom
+      this.camera.pinchDeltaPercentage = 0.02 // Percentage of distance change per pinch event
+    }
     // multiTouchPanAndZoom is enabled by default in Babylon.js
     // Touch sensitivity uses the same properties as mouse controls
 
@@ -254,6 +263,23 @@ export class BabylonSceneService {
   }
 
 
+
+  /**
+   * Check if the current device is a mobile device
+   */
+  private isMobileDevice(): boolean {
+    // Check for touch support
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    
+    // Check user agent for mobile devices
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isMobileUA = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+    
+    // Check screen size (optional, for more comprehensive detection)
+    const isSmallScreen = window.innerWidth <= 768;
+    
+    return hasTouch && (isMobileUA || isSmallScreen);
+  }
 
   /**
    * Setup picking interactions
