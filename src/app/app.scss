@@ -13,6 +13,10 @@
   width: 100%;
   height: 100%;
   cursor: crosshair;
+  touch-action: none; /* Prevent default touch behaviors like browser zoom/pan */
+  -webkit-touch-callout: none; /* Disable iOS callout */
+  -webkit-user-select: none; /* Disable text selection */
+  user-select: none;
 }
 
 .hud-top-left {
