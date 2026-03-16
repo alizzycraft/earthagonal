@@ -152,6 +152,21 @@ export class BabylonSceneService {
     this.camera.attachControl(canvas, true)
     this.camera.wheelPrecision = 0.05 // Balanced fast zoom (user requested)
 
+    // Configure touch gestures for mobile devices
+    const isMobile = this.isMobileDevice();
+    
+    if (isMobile) {
+      // Mobile: Much less sensitive zoom
+      this.camera.pinchPrecision = 125 // 2x faster than before (higher number = slower zoom)
+      this.camera.pinchDeltaPercentage = 0.0008 // 2x faster than before
+    } else {
+      // Desktop: Original responsive values
+      this.camera.pinchPrecision = 0.5 // Pinch sensitivity for zoom
+      this.camera.pinchDeltaPercentage = 0.02 // Percentage of distance change per pinch event
+    }
+    // multiTouchPanAndZoom is enabled by default in Babylon.js
+    // Touch sensitivity uses the same properties as mouse controls
+
     // Decrease rotation speed to account for massive Earth radius
     this.camera.angularSensibilityX = 5000 // Higher number = slower rotation
     this.camera.angularSensibilityY = 5000
@@ -250,15 +265,34 @@ export class BabylonSceneService {
 
 
   /**
+   * Check if the current device is a mobile device
+   */
+  private isMobileDevice(): boolean {
+    // Check for touch support
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    
+    // Check user agent for mobile devices
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isMobileUA = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+    
+    // Check screen size (optional, for more comprehensive detection)
+    const isSmallScreen = window.innerWidth <= 768;
+    
+    return hasTouch && (isMobileUA || isSmallScreen);
+  }
+
+  /**
    * Setup picking interactions
    */
   private setupPicking(): void {
     if (!this.scene || !this.gridMesh) return
 
     this.scene.onPointerObservable.add((pointerInfo) => {
+      // Handle touch events differently to avoid conflicts with pinch-to-zoom
       if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERPICK &&
         pointerInfo.pickInfo?.hit &&
-        pointerInfo.pickInfo.faceId !== undefined) {
+        pointerInfo.pickInfo.faceId !== undefined &&
+        pointerInfo.event.button !== undefined) { // Check if it's a mouse event (has button property)
 
         const faceId = pointerInfo.pickInfo.faceId
         console.log(`Pointer pick hit faceId: ${faceId}`)
@@ -268,14 +302,30 @@ export class BabylonSceneService {
           this.selectionService.selectCellByTriangle(faceId)
         }
       } else if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERMOVE) {
-        // Handle hover
-        if (pointerInfo.pickInfo?.hit && pointerInfo.pickInfo.faceId !== undefined) {
-          console.log(`Hover faceId: ${pointerInfo.pickInfo.faceId}`)
-          this.selectionService.setHoveredByTriangle(pointerInfo.pickInfo.faceId)
-        } else {
-          console.log('Hover cleared')
-          this.selectionService.clearHover()
+        // Handle hover only for mouse events
+        if (pointerInfo.event.button !== undefined) {
+          // Handle hover
+          if (pointerInfo.pickInfo?.hit && pointerInfo.pickInfo.faceId !== undefined) {
+            console.log(`Hover faceId: ${pointerInfo.pickInfo.faceId}`)
+            this.selectionService.setHoveredByTriangle(pointerInfo.pickInfo.faceId)
+          } else {
+            console.log('Hover cleared')
+            this.selectionService.clearHover()
+          }
         }
+      }
+    })
+
+    // Add touch-specific event handling for cell selection on mobile
+    this.scene.onPointerObservable.add((pointerInfo) => {
+      if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERTAP &&
+          pointerInfo.event.button === undefined && // Touch events don't have button property
+          pointerInfo.pickInfo?.hit &&
+          pointerInfo.pickInfo.faceId !== undefined) {
+        
+        const faceId = pointerInfo.pickInfo.faceId
+        console.log(`Touch tap hit faceId: ${faceId}`)
+        this.selectionService.selectCellByTriangle(faceId)
       }
     })
   }
