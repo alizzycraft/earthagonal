@@ -19,6 +19,7 @@ export class BabylonSceneService {
   private edgeLines: BABYLON.Mesh[] = []
   private cellLookupService: CellLookupService | null = null
   private baseColors: Float32Array | null = null
+  private headlamp: BABYLON.PointLight | null = null
 
   // Single material
   private gridMaterial: BABYLON.StandardMaterial | null = null
@@ -149,11 +150,11 @@ export class BabylonSceneService {
       this.scene
     )
     this.camera.attachControl(canvas, true)
-    this.camera.wheelPrecision = 0.1 // Balanced fast zoom (user requested)
-    
+    this.camera.wheelPrecision = 0.05 // Balanced fast zoom (user requested)
+
     // Decrease rotation speed to account for massive Earth radius
     this.camera.angularSensibilityX = 5000 // Higher number = slower rotation
-    this.camera.angularSensibilityY = 5000 
+    this.camera.angularSensibilityY = 5000
 
     // Set camera limits to prevent getting too far or too close
     this.camera.lowerRadiusLimit = Icosahedron.EARTH_RADIUS_KM * 1.05 // Closer minimum zoom
@@ -168,21 +169,20 @@ export class BabylonSceneService {
    * Create lighting
    */
   private createLighting(): void {
-    if (!this.scene) return
+    if (!this.scene || !this.camera) return
 
-    const light1 = new BABYLON.HemisphericLight(
-      'light1',
-      new BABYLON.Vector3(0, 1, 0),
+    // Set global ambient color for a subtle minimum brightness
+    this.scene.ambientColor = new BABYLON.Color3(0.1, 0.1, 0.1)
+
+    // Create a "headlamp" light that follows the camera
+    // We removed the other lights to simplify the setup as requested
+    this.headlamp = new BABYLON.PointLight(
+      'headlamp',
+      BABYLON.Vector3.Zero(),
       this.scene
     )
-    light1.intensity = 0.7
-
-    const light2 = new BABYLON.DirectionalLight(
-      'light2',
-      new BABYLON.Vector3(-1, -2, -1),
-      this.scene
-    )
-    light2.intensity = 0.3
+    this.headlamp.parent = this.camera
+    this.headlamp.intensity = 2
   }
 
   /**
@@ -205,11 +205,11 @@ export class BabylonSceneService {
     // Build paths for each cell's outer perimeter
     for (let i = 0; i < cellCount; i++) {
       const vertices = this.cellLookupService.getCellPolygonVertices(i)
-      
+
       const path = vertices.map(v => new BABYLON.Vector3(v.x * LINE_OFFSET, v.y * LINE_OFFSET, v.z * LINE_OFFSET))
       // Close the loop
       path.push(new BABYLON.Vector3(vertices[0].x * LINE_OFFSET, vertices[0].y * LINE_OFFSET, vertices[0].z * LINE_OFFSET))
-      
+
       linePaths.push(path)
     }
 
@@ -223,7 +223,7 @@ export class BabylonSceneService {
     edgeSystem.color = new BABYLON.Color3(0.5, 0.5, 0.5)
     edgeSystem.alpha = 0.5
     edgeSystem.isPickable = false // Don't interfere with picking
-    
+
     this.edgeLines.push(edgeSystem)
 
     console.log(`Created 1 edge LineSystem containing ${cellCount} closed loops`)
@@ -315,7 +315,7 @@ export class BabylonSceneService {
 
     const colors = this.gridMesh.getVerticesData(BABYLON.VertexBuffer.ColorKind) as Float32Array
     if (!colors) return
-    
+
     const indices = this.gridMesh.getIndices()
     if (!indices) return
 
@@ -404,6 +404,11 @@ export class BabylonSceneService {
     if (this.gridMaterial) {
       this.gridMaterial.dispose()
       this.gridMaterial = null
+    }
+
+    if (this.headlamp) {
+      this.headlamp.dispose()
+      this.headlamp = null
     }
 
     if (this.scene) {
