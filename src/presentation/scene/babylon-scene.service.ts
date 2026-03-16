@@ -157,8 +157,8 @@ export class BabylonSceneService {
     
     if (isMobile) {
       // Mobile: Much less sensitive zoom
-      this.camera.pinchPrecision = 50 // Much lower sensitivity (higher number = slower zoom)
-      this.camera.pinchDeltaPercentage = 0.001 // Much smaller percentage change per pinch event
+      this.camera.pinchPrecision = 1000 // Dramatically lower sensitivity (higher number = slower zoom)
+      this.camera.pinchDeltaPercentage = 0.0001 // Dramatically smaller percentage change per pinch event
     } else {
       // Desktop: Original responsive values
       this.camera.pinchPrecision = 0.5 // Pinch sensitivity for zoom
