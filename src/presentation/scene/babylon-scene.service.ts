@@ -6,6 +6,17 @@ import { CellID } from '../../domain/models/cell-id'
 import { GoldbergMesh } from '../../domain/geometry/models/geometry-types'
 import { CellLookupService, Point3D } from '../../domain/services/cell-lookup.service'
 import { Icosahedron } from '../../domain/models/icosahedron'
+import { SDFGeneratorService } from '../../domain/services/sdf-generator.service'
+import { SDFCacheService } from '../../domain/services/sdf-cache.service'
+import { TerrainDataService } from '../../domain/services/terrain-data.service'
+import { CoastlineShaderMaterial } from './coastline-shader-material'
+
+/** Cache key for the SDF texture — keyed by the heightmap asset URL. */
+const SDF_CACHE_KEY = 'assets/data/height-combined.png'
+
+/** SDF texture dimensions (must be power-of-two). */
+const SDF_WIDTH = 4096
+const SDF_HEIGHT = 2048
 
 @Injectable({
   providedIn: 'root'
@@ -21,12 +32,23 @@ export class BabylonSceneService {
   private baseColors: Float32Array | null = null
   private headlamp: BABYLON.PointLight | null = null
 
-  // Single material
+  // SDF / shader material
+  private coastlineShaderMaterial: CoastlineShaderMaterial | null = null
+  private sdfTexture: BABYLON.RenderTargetTexture | null = null
+  private heightTexture: BABYLON.Texture | null = null
+
+  // Single material (kept for fallback / disposal tracking)
   private gridMaterial: BABYLON.StandardMaterial | null = null
+
+  // Elapsed time accumulator for the foam animation uniform
+  private elapsedTime = 0
 
   constructor(
     private selectionService: SelectionService,
-    private destroyRef: DestroyRef
+    private destroyRef: DestroyRef,
+    private sdfGeneratorService: SDFGeneratorService,
+    private sdfCacheService: SDFCacheService,
+    private terrainDataService: TerrainDataService,
   ) {
     // Set up reactive effects
     this.setupSelectionEffects()
@@ -56,9 +78,26 @@ export class BabylonSceneService {
       this.dispose()
     })
 
+    // Kick off the SDF pipeline asynchronously (Requirement 9.1)
+    this.initializeSDF().catch(err =>
+      console.error('BabylonSceneService: SDF initialization failed', err)
+    )
+
     // Start render loop
     this.engine.runRenderLoop(() => {
       if (this.scene) {
+        // Accumulate elapsed time for foam animation (Requirement 6.3 / 9.1)
+        this.elapsedTime += this.engine!.getDeltaTime() / 1000
+        if (this.coastlineShaderMaterial) {
+          this.coastlineShaderMaterial.setTime(this.elapsedTime)
+        }
+
+        // Update headlamp light direction uniform each frame (Requirement 6.2)
+        if (this.coastlineShaderMaterial && this.headlamp && this.camera) {
+          const lightDir = this.camera.position.normalize()
+          this.coastlineShaderMaterial.setLightDirection(lightDir)
+        }
+
         this.scene.render()
       }
     })
@@ -69,6 +108,95 @@ export class BabylonSceneService {
         this.engine.resize()
       }
     })
+  }
+
+  /**
+   * Run the SDF generation pipeline and wire the result into the shader material.
+   *
+   * Sequence (Requirements 9.1, 9.3):
+   *   1. Await TerrainDataService.ensureReady()
+   *   2. Check SDFCacheService for a cached texture
+   *   3. If cache miss: call SDFGeneratorService.generate() and store in cache
+   *   4. Assign the packed SDF texture to CoastlineShaderMaterial
+   *   5. Replace the StandardMaterial on gridMesh with the shader material
+   */
+  private async initializeSDF(): Promise<void> {
+    if (!this.scene) return
+
+    // Step 1: ensure the heightmap is loaded
+    await this.terrainDataService.ensureReady()
+    this.sdfGeneratorService.markTerrainReady()
+
+    // Load the height texture for the shader (used for elevation normals)
+    this.heightTexture = new BABYLON.Texture(
+      SDF_CACHE_KEY,
+      this.scene,
+      false,
+      true,
+      BABYLON.Texture.BILINEAR_SAMPLINGMODE,
+    )
+
+    // Step 2: check cache (Requirement 9.3)
+    let sdfTexture = this.sdfCacheService.get(SDF_CACHE_KEY)
+
+    if (!sdfTexture) {
+      // Step 3: cache miss — generate the SDF
+      console.log('BabylonSceneService: SDF cache miss, generating SDF…')
+      const maskTexture = new BABYLON.Texture(
+        SDF_CACHE_KEY,
+        this.scene,
+        false,
+        true,
+        BABYLON.Texture.BILINEAR_SAMPLINGMODE,
+      )
+
+      sdfTexture = await this.sdfGeneratorService.generate(
+        this.scene,
+        maskTexture,
+        SDF_WIDTH,
+        SDF_HEIGHT,
+      )
+
+      // Store in cache for subsequent startups
+      this.sdfCacheService.set(SDF_CACHE_KEY, sdfTexture)
+      console.log('BabylonSceneService: SDF generated and cached.')
+    } else {
+      console.log('BabylonSceneService: SDF cache hit, skipping generation.')
+    }
+
+    this.sdfTexture = sdfTexture
+
+    // Step 4: create the CoastlineShaderMaterial and wire textures
+    this.coastlineShaderMaterial = new CoastlineShaderMaterial()
+    this.coastlineShaderMaterial.create(this.scene, sdfTexture, this.heightTexture)
+
+    // Set initial light direction from headlamp / camera position
+    if (this.headlamp && this.camera) {
+      const lightDir = this.camera.position.normalize()
+      this.coastlineShaderMaterial.setLightDirection(lightDir)
+    }
+
+    // Step 5: replace the StandardMaterial on gridMesh (Requirement 9.1)
+    if (this.gridMesh) {
+      this.applyCoastlineMaterial()
+    }
+    // If gridMesh isn't created yet, applyCoastlineMaterial() will be called
+    // from createGridMesh() once the mesh is ready.
+  }
+
+  /**
+   * Assign the CoastlineShaderMaterial to the gridMesh, preserving vertex
+   * colors for the selection/hover highlighting system.
+   */
+  private applyCoastlineMaterial(): void {
+    if (!this.gridMesh || !this.coastlineShaderMaterial) return
+
+    const shaderMat = this.coastlineShaderMaterial['material']
+    if (!shaderMat) return
+
+    // Preserve vertex-color usage so the highlighting system still works
+    this.gridMesh.material = shaderMat
+    this.gridMesh.useVertexColors = true
   }
 
   /**
@@ -84,7 +212,7 @@ export class BabylonSceneService {
       this.gridMesh.dispose()
     }
 
-    // Create material if needed
+    // Create material if needed (used as fallback until SDF is ready)
     if (!this.gridMaterial) {
       this.gridMaterial = new BABYLON.StandardMaterial('gridMaterial', this.scene)
       this.gridMaterial.specularColor = new BABYLON.Color3(0, 0, 0)
@@ -107,8 +235,14 @@ export class BabylonSceneService {
     // applyToMesh(mesh, updatable) -> true for dynamic colors
     vertexData.applyToMesh(this.gridMesh!, true)
 
-    // Setup Mesh
-    this.gridMesh!.material = this.gridMaterial
+    // Apply the CoastlineShaderMaterial if it's already ready; otherwise fall
+    // back to the StandardMaterial until initializeSDF() completes.
+    if (this.coastlineShaderMaterial) {
+      this.applyCoastlineMaterial()
+    } else {
+      this.gridMesh!.material = this.gridMaterial
+    }
+
     this.gridMesh!.useVertexColors = true
     this.gridMesh!.isPickable = true
     this.gridMesh!.checkCollisions = false
@@ -431,7 +565,7 @@ export class BabylonSceneService {
   }
 
   /**
-   * Dispose of all Babylon resources
+   * Dispose of all Babylon resources, including WebGL render targets (Requirement 9.2).
    */
   dispose(): void {
     if (this.gridMesh) {
@@ -454,6 +588,23 @@ export class BabylonSceneService {
     if (this.gridMaterial) {
       this.gridMaterial.dispose()
       this.gridMaterial = null
+    }
+
+    // Dispose CoastlineShaderMaterial (Requirement 9.2)
+    if (this.coastlineShaderMaterial) {
+      this.coastlineShaderMaterial.dispose()
+      this.coastlineShaderMaterial = null
+    }
+
+    // Dispose WebGL render targets to prevent GPU memory leaks (Requirement 9.2)
+    if (this.sdfTexture) {
+      this.sdfTexture.dispose()
+      this.sdfTexture = null
+    }
+
+    if (this.heightTexture) {
+      this.heightTexture.dispose()
+      this.heightTexture = null
     }
 
     if (this.headlamp) {

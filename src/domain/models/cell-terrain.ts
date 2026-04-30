@@ -10,7 +10,9 @@ export interface CellTerrain {
   elevation: number;
   landRatio: number;
   coastDistance: number;
+  sdfDistance: number;
   latitude: number;
   longitude: number;
+  uv: { x: number; y: number };
   coastEdgeCrossings: CoastEdge[];
 }

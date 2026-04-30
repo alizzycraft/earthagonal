@@ -3,6 +3,19 @@ import { TerrainDataService } from '../services/terrain-data.service'
 import { CellTerrain, TerrainType } from '../models/cell-terrain'
 import { Cell } from '../geometry/models/geometry-types'
 
+/**
+ * Converts a unit-sphere XYZ point to UV texture coordinates.
+ * - u: longitude mapped to [0, 1), wrapping correctly
+ * - v: latitude mapped to [0, 1], 0 = north pole, 1 = south pole
+ */
+export function xyzToUV(x: number, y: number, z: number): { u: number; v: number } {
+  const lat = Math.asin(Math.max(-1, Math.min(1, y)))
+  const lon = Math.atan2(z, x)
+  const u = (((lon + Math.PI) / (2 * Math.PI)) % 1 + 1) % 1
+  const v = Math.max(0, Math.min(1, (Math.PI / 2 - lat) / Math.PI))
+  return { u, v }
+}
+
 export class TerrainSampler {
   /**
    * Samples terrain data for a specific cell using the 19-point strategy
@@ -105,8 +118,10 @@ export class TerrainSampler {
       elevation: totalElevation / totalWeight,
       landRatio,
       coastDistance: 0, // Computed later
+      sdfDistance: 0,   // Populated later by CoastlineAnalyzerService
       latitude: gps.lat,
       longitude: gps.lon,
+      uv: { x: 0, y: 0 }, // Populated later by CoastlineAnalyzerService
       coastEdgeCrossings: [] // Computed later
     }
   }

@@ -52,11 +52,11 @@ describe('Optimized Earthagonal Implementation Tests', () => {
 
   // Test 2: Goldberg Cell Count
   describe('§11.2 Goldberg Cell Count', () => {
-    it('should generate correct cell counts for n=3, 5, 8', () => {
+    it('should generate correct cell counts for n=3, 5, 8', async () => {
       const testCases = [3, 5, 8]
       
       for (const n of testCases) {
-        const mesh = generatorService.generateSphere(n)
+        const mesh = await generatorService.generateSphere(n)
         const expectedCount = 10 * n * n + 2
         
         expect(mesh.cells.length).toBe(expectedCount)
@@ -66,9 +66,9 @@ describe('Optimized Earthagonal Implementation Tests', () => {
 
   // Test 3: Cell Types
   describe('§11.3 Cell Types', () => {
-    it('should generate exactly 12 pentagons and the rest hexagons for n=5', () => {
+    it('should generate exactly 12 pentagons and the rest hexagons for n=5', async () => {
       const n = 5
-      const mesh = generatorService.generateSphere(n)
+      const mesh = await generatorService.generateSphere(n)
       
       let pentagons = 0
       let hexagons = 0
@@ -95,8 +95,8 @@ describe('Optimized Earthagonal Implementation Tests', () => {
 
   // Test 4: Neighbor Count
   describe('§11.4 Neighbor Count', () => {
-    it('should have 5 neighbors for pentagons and 6 neighbors for hexagons', () => {
-      const mesh = generatorService.generateSphere(4) // Test with n=4
+    it('should have 5 neighbors for pentagons and 6 neighbors for hexagons', async () => {
+      const mesh = await generatorService.generateSphere(4) // Test with n=4
       
       for (const cell of mesh.cells) {
         if (cell.isPentagon) {
